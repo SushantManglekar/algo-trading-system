@@ -1,5 +1,12 @@
 """Market-data domain contracts and processing."""
 
+from market_data.candle_engine import CandleEngine, CandleEngineSettings, CandleUpdate
+from market_data.candle_history import (
+    HistoricalCandleResult,
+    HistoricalCandleService,
+    HistoricalCandleSource,
+)
+from market_data.exchange_calendar import CandleBucket, XnysExchangeCalendar
 from market_data.provider import MarketDataProvider
 from market_data.tick_processor import (
     TickProcessingResult,
@@ -12,8 +19,15 @@ from market_data.types import Candle, CandleInterval, HistoricalCandleRequest, M
 
 __all__ = [
     "Candle",
+    "CandleBucket",
+    "CandleEngine",
+    "CandleEngineSettings",
     "CandleInterval",
+    "CandleUpdate",
     "HistoricalCandleRequest",
+    "HistoricalCandleResult",
+    "HistoricalCandleService",
+    "HistoricalCandleSource",
     "InMemoryTickStore",
     "MarketDataProvider",
     "MarketTick",
@@ -22,4 +36,5 @@ __all__ = [
     "TickProcessor",
     "TickProcessorSettings",
     "TickStore",
+    "XnysExchangeCalendar",
 ]
