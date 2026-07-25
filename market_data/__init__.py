@@ -6,6 +6,7 @@ from market_data.candle_history import (
     HistoricalCandleService,
     HistoricalCandleSource,
 )
+from market_data.candle_store import InMemoryCandleStore
 from market_data.exchange_calendar import CandleBucket, XnysExchangeCalendar
 from market_data.provider import MarketDataProvider
 from market_data.tick_processor import (
@@ -28,6 +29,7 @@ __all__ = [
     "HistoricalCandleResult",
     "HistoricalCandleService",
     "HistoricalCandleSource",
+    "InMemoryCandleStore",
     "InMemoryTickStore",
     "MarketDataProvider",
     "MarketTick",

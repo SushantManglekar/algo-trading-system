@@ -15,3 +15,16 @@ The codebase follows clean-architecture boundaries:
 - `config` and `core`: configuration and cross-cutting infrastructure.
 
 Each module will be introduced incrementally, with no order-execution capability in Phase 1.
+
+## Run the API
+
+Install the locked development environment, then start the ASGI server:
+
+```powershell
+uv sync --all-groups --python 3.12
+uv run --python 3.12 uvicorn api.app:app --host 127.0.0.1 --port 8000
+```
+
+Open `http://127.0.0.1:8000/docs` for the interactive API. The default application uses the
+deterministic in-memory provider and stores; production provider and database adapters are
+injected through the application container as later phases introduce them.
