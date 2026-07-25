@@ -105,7 +105,7 @@ Copy-Item .env.example .env
 docker compose up --build
 ```
 
-The API is available on port `8000`; PostgreSQL is published at `5432` and Redis at `6379`. The API waits for both dependency health checks, applies the Alembic migration automatically, and then starts. Named Docker volumes retain PostgreSQL and Redis data across normal `docker compose down` operations.
+The API is available on port `8000`; Redis is published at `6379`. PostgreSQL is hosted outside Docker (for example, the local instance managed through pgAdmin). Configure `TRADING_DATABASE_URL` in `.env`; Docker Desktop reaches a host-local database through `host.docker.internal`. The API waits for Redis, applies the Alembic migration automatically, and then starts. The Redis named volume persists across normal `docker compose down` operations.
 
 Stop it with:
 
@@ -113,7 +113,7 @@ Stop it with:
 docker compose down
 ```
 
-Use `docker compose down -v` only when deliberately discarding all local database and cache data.
+Use `docker compose down -v` only when deliberately discarding the local Redis cache data. It does not remove the externally managed PostgreSQL database.
 
 ## REST API
 
@@ -177,7 +177,7 @@ Every message has this envelope:
 
 ## Configuration
 
-Copy `.env.example` to `.env` and adjust the `TRADING_` variables. Set `TRADING_STORAGE_BACKEND=postgres` together with an async SQLAlchemy `TRADING_DATABASE_URL` and `TRADING_REDIS_URL` for durable deployment. Use `memory` only for isolated development/tests. The Compose file sets its own service-host URLs, so host-local `.env` URLs can safely use `localhost`.
+Copy `.env.example` to `.env` and adjust the `TRADING_` variables. Set `TRADING_STORAGE_BACKEND=postgres` together with an async SQLAlchemy `TRADING_DATABASE_URL` and `TRADING_REDIS_URL` for durable deployment. Use `memory` only for isolated development/tests. For Docker Desktop, use `host.docker.internal` in the database URL; use `localhost` only when running the API directly on the host.
 
 Use `mock` providers for local deterministic testing. To use Alpaca without code changes, set both provider names to `alpaca`, add the appropriate keys, set `TRADING_SYMBOLS`, then choose the paper or explicitly guarded live mode. The SDK's stock stream subscribes to trade and quote WebSocket events; the application discards trades until it has a contemporaneous quote rather than inventing bid/ask values. [Alpaca real-time data documentation](https://alpaca.markets/sdks/python/api_reference/data/stock/live.html)
 
