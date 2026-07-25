@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from collections.abc import AsyncIterator
 
+from sqlalchemy import text
+from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.asyncio import (
     AsyncEngine,
     AsyncSession,
@@ -30,3 +32,12 @@ class Database:
 
     async def dispose(self) -> None:
         await self.engine.dispose()
+
+    async def ping(self) -> bool:
+        """Return whether a new database connection can execute a trivial query."""
+        try:
+            async with self.engine.connect() as connection:
+                await connection.execute(text("SELECT 1"))
+        except SQLAlchemyError:
+            return False
+        return True

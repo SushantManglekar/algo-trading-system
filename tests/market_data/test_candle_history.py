@@ -9,6 +9,19 @@ from market_data.types import Candle, CandleInterval, HistoricalCandleRequest, M
 from providers.mock import MockMarketDataProvider
 
 
+class InclusiveBoundaryProvider(MockMarketDataProvider):
+    """Simulates a vendor whose historical end value is inclusive."""
+
+    def __init__(self, candles: tuple[Candle, ...]) -> None:
+        super().__init__()
+        self._candles = candles
+
+    async def get_historical_candles(
+        self, request: HistoricalCandleRequest
+    ) -> tuple[Candle, ...]:
+        return self._candles
+
+
 def candle(start_at: datetime) -> Candle:
     return Candle(
         symbol="AAPL",
@@ -43,6 +56,27 @@ async def test_history_service_prefers_complete_provider_candles() -> None:
     start = datetime(2026, 7, 24, 13, 30, tzinfo=UTC)
     expected = candle(start)
     provider = MockMarketDataProvider(historical_candles=(expected,))
+    await provider.connect()
+    request = HistoricalCandleRequest(
+        symbol="AAPL",
+        interval=CandleInterval.ONE_MINUTE,
+        start_at=start,
+        end_at=start + timedelta(minutes=1),
+    )
+
+    result = await HistoricalCandleService(XnysExchangeCalendar()).get_candles(
+        request, provider, fallback_ticks=()
+    )
+
+    assert result.source is HistoricalCandleSource.PROVIDER
+    assert result.candles == (expected,)
+
+
+@pytest.mark.asyncio
+async def test_history_service_discards_provider_bar_at_inclusive_end_boundary() -> None:
+    start = datetime(2026, 7, 24, 13, 30, tzinfo=UTC)
+    expected = candle(start)
+    provider = InclusiveBoundaryProvider((expected, candle(start + timedelta(minutes=1))))
     await provider.connect()
     request = HistoricalCandleRequest(
         symbol="AAPL",

@@ -82,6 +82,17 @@ class ApplicationContainer:
             await self.database.dispose()
         self.started = False
 
+    async def readiness(self) -> dict[str, bool]:
+        """Report whether every enabled runtime dependency can serve production traffic."""
+        dependencies = {
+            "application": self.started,
+            "market_data": self.provider.is_connected,
+            "pipeline": not self.settings.symbols or self.pipeline_worker.is_running,
+            "database": self.database is None or await self.database.ping(),
+            "redis": self.cache is None or await self.cache.ping(),
+        }
+        return {"ready": all(dependencies.values()), **dependencies}
+
 
 def build_container(settings: AppSettings | None = None) -> ApplicationContainer:
     """Build explicitly selected memory stores or durable PostgreSQL/Redis adapters."""

@@ -41,11 +41,12 @@ class HistoricalCandleService:
     ) -> HistoricalCandleResult:
         provider_candles = tuple(await provider.get_historical_candles(request))
         if provider_candles:
-            self._validate_provider_candles(provider_candles, request)
-            return HistoricalCandleResult(
-                candles=provider_candles,
-                source=HistoricalCandleSource.PROVIDER,
-            )
+            complete_provider_candles = self._complete_provider_candles(provider_candles, request)
+            if complete_provider_candles:
+                return HistoricalCandleResult(
+                    candles=complete_provider_candles,
+                    source=HistoricalCandleSource.PROVIDER,
+                )
 
         engine = CandleEngine(
             CandleEngineSettings(intervals=(request.interval,)), self._calendar
@@ -68,17 +69,26 @@ class HistoricalCandleService:
         )
 
     @staticmethod
-    def _validate_provider_candles(
+    def _complete_provider_candles(
         candles: Sequence[Candle], request: HistoricalCandleRequest
-    ) -> None:
+    ) -> tuple[Candle, ...]:
+        """Validate vendor data and drop bars outside the requested complete range.
+
+        Alpaca's historical endpoint treats its end value inclusively, so a request ending at
+        ``10:00`` can include the bar beginning at ``10:00``.  That bar is not complete within
+        this application's half-open ``[start_at, end_at)`` contract and must not leak into a
+        backtest or indicator calculation.
+        """
         if list(candles) != sorted(candles, key=lambda candle: candle.start_at):
             raise ValueError("provider candles must be ordered by ascending start_at")
+        complete_candles: list[Candle] = []
         for candle in candles:
             if (
                 candle.symbol != request.symbol
                 or candle.interval != request.interval
                 or not candle.is_complete
-                or candle.start_at < request.start_at
-                or candle.end_at > request.end_at
             ):
-                raise ValueError("provider returned a candle outside the requested complete range")
+                raise ValueError("provider returned an invalid candle")
+            if candle.start_at >= request.start_at and candle.end_at <= request.end_at:
+                complete_candles.append(candle)
+        return tuple(complete_candles)

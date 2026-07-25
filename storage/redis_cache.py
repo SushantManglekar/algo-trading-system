@@ -58,6 +58,15 @@ class RedisCache:
     def is_connected(self) -> bool:
         return self._client is not None
 
+    async def ping(self) -> bool:
+        """Return whether the configured Redis connection is currently usable."""
+        if self._client is None:
+            return False
+        try:
+            return bool(await self._client.ping())
+        except RedisError:
+            return False
+
     @staticmethod
     def key(*parts: Any) -> str:
         """Build namespaced keys without allowing separators in variable components."""

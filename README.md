@@ -82,6 +82,7 @@ Open these URLs once the server starts:
 
 - Interactive API: http://127.0.0.1:8000/docs
 - Health: http://127.0.0.1:8000/health
+- Readiness: http://127.0.0.1:8000/ready
 - Prometheus metrics: http://127.0.0.1:8000/metrics
 
 ### Verify the service
@@ -120,6 +121,7 @@ Use `docker compose down -v` only when deliberately discarding the local Redis c
 | Method | Endpoint | Purpose |
 | --- | --- | --- |
 | `GET` | `/health` | Liveness check. |
+| `GET` | `/ready` | Readiness check for the market-data pipeline, PostgreSQL, and Redis. |
 | `GET` | `/metrics` | Prometheus metrics. |
 | `GET` | `/market/status` | Provider and application connection status. |
 | `POST` | `/market/ticks` | Validate, store, and aggregate one tick. |

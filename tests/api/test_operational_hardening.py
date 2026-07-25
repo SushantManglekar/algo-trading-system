@@ -23,6 +23,16 @@ def test_api_preserves_request_id_and_returns_validation_errors() -> None:
         health = client.get("/health", headers={"X-Request-ID": "test-request-123"})
         assert health.status_code == 200
         assert health.headers["X-Request-ID"] == "test-request-123"
+        readiness = client.get("/ready")
+        assert readiness.status_code == 200
+        assert readiness.json() == {
+            "ready": True,
+            "application": True,
+            "market_data": True,
+            "pipeline": True,
+            "database": True,
+            "redis": True,
+        }
 
         invalid_tick = client.post("/market/ticks", json={"symbol": "AAPL"})
         assert invalid_tick.status_code == 422

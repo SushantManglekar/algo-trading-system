@@ -109,6 +109,10 @@ class AlpacaMarketDataProvider(MarketDataProvider):
                 feed=self._feed,
             ),
         )
+        try:
+            symbol_bars = bars[request.symbol]
+        except KeyError:
+            return ()
         return tuple(
             Candle(
                 symbol=request.symbol,
@@ -122,7 +126,7 @@ class AlpacaMarketDataProvider(MarketDataProvider):
                 volume=Decimal(str(bar.volume)),
                 is_complete=True,
             )
-            for bar in bars[request.symbol]
+            for bar in symbol_bars
         )
 
     async def stream_ticks(self) -> AsyncIterator[MarketTick]:
