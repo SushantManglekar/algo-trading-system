@@ -1,174 +1,181 @@
 # Intraday Signal Platform
 
-A Python 3.12 FastAPI backend for US equities market data, strategy evaluation, portfolio risk controls, and configurable Alpaca execution.
+> A configuration-driven Python backend for US-equities market data, strategy evaluation, portfolio risk controls, and guarded Alpaca execution.
 
-The deterministic mock market-data provider makes local development safe without broker credentials. The default local development composition uses bounded in-memory stores; Docker Compose uses PostgreSQL as the durable system of record and Redis to accelerate latest tick/candle reads.
+## Status
 
-## What it does today
+**Paper-trading backend: ready for controlled operation.**
 
-- Normalizes, validates, and stores timestamp-aware market ticks.
-- Aggregates XNYS-session candles from `1m` through monthly intervals.
-- Prefers provider candle history and safely falls back to tick aggregation.
-- Runs isolated strategy plugins; EMA crossover is the first concrete strategy.
-- Converts directional intents into ATR-based, position-sized proposals with hard loss limits.
-- Calculates realized-outcome analytics after an explicitly supplied close.
-- Persists ticks, candles, signals, observed outcomes, automated orders, and account/position snapshots in PostgreSQL.
-- Uses Redis only for expiring latest-value cache entries; Redis loss never represents loss of trading history.
-- Runs a bounded, symbol-sharded worker pipeline: tick → completed candle → EMA/ATR → portfolio risk → idempotent execution audit → broker order.
-- Exposes backend account, holdings, execution, and P/L inputs at `/trading/*` for the future dashboard.
-- Exposes REST endpoints, interactive OpenAPI documentation, Prometheus metrics, and WebSocket topics.
+The application can stream Alpaca market data, build candles, run the EMA crossover strategy, apply portfolio-aware risk controls, record every decision, and submit paper orders only after explicit configuration gates are enabled. It is intentionally **not yet approved for unattended live trading**; the remaining live-readiness work is documented below.
 
-## Signal lifecycle
+There is no browser dashboard yet. The current operator surface is the REST API, WebSockets, Prometheus metrics, Docker health probes, and the Alpaca paper dashboard.
+
+## What the application does today
+
+| Area | Current capability |
+| --- | --- |
+| Market data | Streams Alpaca quotes and trades, validates normalized ticks, and persists them. |
+| Candles | Builds XNYS-session-aware candles from `1m` to monthly intervals; provider history is preferred and tick aggregation is a safe fallback. |
+| Strategy | Runs plugin-style strategies. EMA crossover is the first production strategy and evaluates completed candles only. |
+| Risk | Sizes entries from ATR, prevents averaging down, limits loss streaks, daily loss, gross exposure, open positions, and cash-reserve breaches. |
+| Execution | Uses an idempotent, provider-neutral execution boundary with a guarded Alpaca paper/live adapter. Automated entry and exit logic is available but disabled by default. |
+| Storage | PostgreSQL is the durable record for market data, signals, outcomes, account/position snapshots, and execution audit records. Redis caches reconstructible latest values only. |
+| Observability | REST, WebSockets, request/correlation IDs, structured logs, Prometheus metrics, liveness, and dependency readiness checks. |
+| Deployment | Docker Compose runs API + Redis and connects to an externally managed PostgreSQL instance. |
+
+## From market event to broker order
 
 ```mermaid
 flowchart LR
-    A["Market tick"] --> B["Tick processor\nvalidate · normalize · order check"]
-    B --> C["XNYS candle engine\ncompleted-candle aggregation"]
-    C --> D["Strategy engine\nEMA crossover"]
-    D --> E["Strategy intent\nBUY · SELL · EXIT · HOLD"]
-    E --> F["Risk engine\nATR stop · sizing · daily limits"]
-    F --> G["Risk-managed signal\nno order execution"]
-    G --> H["Signal history + REST/WebSocket"]
-    H --> I["Explicit closed outcome"]
-    I --> J["Analytics\nP&L · drawdown · R multiples"]
+    Data["Alpaca market data\ntrades and quotes"] --> Provider["Provider adapter\nnormalized ticks"]
+    Provider --> Pipeline["Symbol-sharded worker pipeline"]
+    Pipeline --> Candle["XNYS candle engine\ncompleted candles only"]
+    Candle --> Strategy["Strategy registry\nEMA crossover"]
+    Strategy --> Intent["Signal intent\nBUY, EXIT, or HOLD"]
+    Intent --> Risk["Portfolio risk engine\nATR sizing and hard limits"]
+    Risk -->|approved| Audit["Idempotency and audit store"]
+    Audit -->|automation explicitly enabled| Broker["Alpaca execution provider"]
+    Risk -->|rejected| Events["Signal history and WebSocket event"]
+    Broker --> Portfolio["Account, positions, orders\nPostgreSQL snapshots"]
+    Pipeline --> Events
+    Events --> API["REST, WebSocket, dashboard-ready APIs"]
 ```
 
-The candle engine only updates strategies from completed candles. The tick processor rejects timestamp-regressing events by default, and the risk engine blocks averaging down, daily-loss breaches, and consecutive-loss breaches.
+The strategy never evaluates an in-progress candle. The tick processor rejects timestamp-regressing events, and the order path is blocked unless every safety gate is satisfied.
 
-## Application architecture
+## Runtime architecture
 
 ```mermaid
 flowchart TB
-    Client["REST client / dashboard"] --> API["FastAPI application"]
-    Live["WebSocket client"] <--> Hub["Live event hub"]
-    API <--> Hub
+    subgraph External["External services"]
+        AlpacaData["Alpaca market-data stream"]
+        AlpacaTrade["Alpaca trading API\npaper or live"]
+        Postgres["PostgreSQL\nauthoritative durable history"]
+        Redis["Redis\nexpiring latest-value cache"]
+    end
 
-    API --> Container["Application container\nexplicit dependency injection"]
-    Container --> Provider["Mock market-data provider"]
-    Container --> Domain["Market data · strategies · risk · analytics"]
-    Container --> Postgres["PostgreSQL\nticks · candles · signals · outcomes · execution audit"]
-    Container --> Redis["Redis\nlatest tick/candle cache"]
-    Postgres --> Redis
-    API --> Metrics["Prometheus /metrics"]
+    subgraph Application["Intraday Signal Platform"]
+        API["FastAPI\nREST, WebSockets, OpenAPI"]
+        Container["Application container\nvalidated runtime configuration"]
+        Worker["Background worker\nparallel symbol processing"]
+        Domain["Candles, strategies, risk, analytics"]
+        Execution["Execution coordinator\nand durable audit"]
+        Ready["/health and /ready\nPrometheus /metrics"]
+    end
+
+    AlpacaData --> Worker
+    Worker --> Domain
+    Domain --> Execution
+    Execution <--> AlpacaTrade
+    API --> Container
+    Container --> Worker
+    Container --> Domain
+    Container --> Execution
+    Container <--> Postgres
+    Container <--> Redis
+    API --> Ready
 ```
 
-The application container owns all runtime dependencies. In-memory stores are an explicit development/test option; setting `TRADING_STORAGE_BACKEND=postgres` selects the durable repositories.
+PostgreSQL is the source of truth. Losing Redis does not discard trading history; it only removes cached latest tick/candle values.
 
-## Trading modes and safety
+## Trading modes and safeguards
 
-`paper` is the default mode. It uses the selected provider's paper credentials and can be automated only after all of these configuration values are set:
+```mermaid
+flowchart TD
+    Start["Application starts"] --> Observe["Observe mode\nsignals, risk decisions, and history"]
+    Observe --> Gate1{"Order submission enabled?"}
+    Gate1 -->|No| Blocked["No broker order\ndefault safe state"]
+    Gate1 -->|Yes| Gate2{"Automation enabled\nand confirmation valid?"}
+    Gate2 -->|No| Blocked
+    Gate2 -->|Yes, paper| Paper["Automated Alpaca paper orders"]
+    Gate2 -->|Yes, live| Gate3{"Separate live confirmation\nand live credentials?"}
+    Gate3 -->|No| Blocked
+    Gate3 -->|Yes| Live["Live order submission\nnot yet recommended"]
+```
+
+Paper automation requires all of the following:
 
 ```dotenv
+TRADING_TRADING_MODE=paper
 TRADING_ORDER_SUBMISSION_ENABLED=true
 TRADING_AUTOMATION_ENABLED=true
 TRADING_AUTOMATION_CONFIRMATION=ENABLE_PAPER_AUTOMATION
 TRADING_SYMBOLS=AAPL,MSFT
 ```
 
-Live trading is intentionally harder to activate. Set `TRADING_TRADING_MODE=live`, use separate live Alpaca credentials, and supply both `ENABLE_LIVE_TRADING` and `ENABLE_LIVE_AUTOMATION` confirmations. Alpaca uses different credentials for paper and live accounts. [Alpaca authentication documentation](https://docs.alpaca.markets/us/v1.1/docs/authentication-1)
-
-Keep `TRADING_AUTOMATION_ENABLED=false` while validating a configuration. Signals are still generated and persisted, but no broker order is submitted.
+Live mode uses separate Alpaca credentials and also requires the explicit `ENABLE_LIVE_TRADING` and `ENABLE_LIVE_AUTOMATION` confirmations. Keep automation disabled while validating a configuration.
 
 ## Quick start
 
-Prerequisites: [uv](https://docs.astral.sh/uv/) and Python 3.12. The project lockfile pins all Python dependencies.
+### Prerequisites
+
+- Python 3.12
+- [uv](https://docs.astral.sh/uv/)
+- Docker Desktop for the containerized stack
+- PostgreSQL, managed outside Docker (for example through local pgAdmin)
+- Redis is started by Docker Compose
+
+### Run locally
 
 ```powershell
 uv sync --all-groups --python 3.12
 uv run --python 3.12 uvicorn api.app:app --host 127.0.0.1 --port 8000
 ```
 
-Open these URLs once the server starts:
-
-- Interactive API: http://127.0.0.1:8000/docs
-- Health: http://127.0.0.1:8000/health
-- Readiness: http://127.0.0.1:8000/ready
-- Prometheus metrics: http://127.0.0.1:8000/metrics
-
-### Verify the service
-
-```powershell
-Invoke-WebRequest -UseBasicParsing http://127.0.0.1:8000/health
-```
-
-Expected response:
-
-```json
-{"status":"ok"}
-```
-
-## Docker
-
-Copy the environment template and start the containerized API:
+### Run with Docker
 
 ```powershell
 Copy-Item .env.example .env
-docker compose up --build
+# Fill in PostgreSQL and Alpaca values in .env. Never commit this file.
+docker compose up --build --detach
 ```
 
-The API is available on port `8000`; Redis is published at `6379`. PostgreSQL is hosted outside Docker (for example, the local instance managed through pgAdmin). Configure `TRADING_DATABASE_URL` in `.env`; Docker Desktop reaches a host-local database through `host.docker.internal`. The API waits for Redis, applies the Alembic migration automatically, and then starts. The Redis named volume persists across normal `docker compose down` operations.
+Docker exposes the API on port `8000` and Redis on port `6379`. The API applies Alembic migrations at startup. For a PostgreSQL instance running on the host, use `host.docker.internal` in `TRADING_DATABASE_URL` so the container can reach it.
 
-Stop it with:
+### Confirm the running system
 
 ```powershell
-docker compose down
+Invoke-RestMethod http://localhost:8000/health
+Invoke-RestMethod http://localhost:8000/ready
+Invoke-RestMethod http://localhost:8000/trading/status
+Invoke-RestMethod http://localhost:8000/trading/account
 ```
 
-Use `docker compose down -v` only when deliberately discarding the local Redis cache data. It does not remove the externally managed PostgreSQL database.
+`/health` is a liveness check. `/ready` verifies the application, market-data provider, worker pipeline, PostgreSQL, and Redis; Docker uses it as its health check.
 
-## REST API
+Open these URLs after startup:
 
-| Method | Endpoint | Purpose |
-| --- | --- | --- |
-| `GET` | `/health` | Liveness check. |
-| `GET` | `/ready` | Readiness check for the market-data pipeline, PostgreSQL, and Redis. |
-| `GET` | `/metrics` | Prometheus metrics. |
-| `GET` | `/market/status` | Provider and application connection status. |
-| `POST` | `/market/ticks` | Validate, store, and aggregate one tick. |
-| `GET` | `/market/ticks/latest/{symbol}` | Latest accepted tick. |
-| `GET` | `/market/candles/latest/{symbol}?interval=1m` | Latest active or completed candle. |
-| `GET` | `/market/candles/{symbol}` | Historical provider candles or safe tick fallback. |
-| `POST` | `/signals/generate` | Risk-check a strategy intent and create a signal proposal when approved. |
-| `GET` | `/signals` | Generated risk-managed signal history. |
-| `POST` | `/analytics/outcomes` | Record an observed close for a generated signal. |
-| `GET` | `/analytics` | Overall and periodized realized analytics. |
-| `GET` | `/trading/status` | Effective mode, configured providers, symbols, and worker state. |
-| `GET` | `/trading/account` | Current account capital and daily P/L inputs. |
-| `GET` | `/trading/positions` | Current holdings with unrealized P/L. |
-| `GET` | `/trading/orders` | Durable automated execution audit trail. |
+- Interactive API: http://localhost:8000/docs
+- Health: http://localhost:8000/health
+- Readiness: http://localhost:8000/ready
+- Metrics: http://localhost:8000/metrics
 
-All REST responses include `X-Request-ID`. Supply `X-Request-ID` and `X-Correlation-ID` headers to preserve external tracing identifiers in structured JSON logs.
+## API and live events
 
-### Example: ingest a tick
-
-```powershell
-$tick = @{
-  timestamp = "2026-07-24T13:30:00Z"
-  received_at = "2026-07-24T13:30:00.002Z"
-  symbol = "AAPL"
-  exchange = "NASDAQ"
-  price = "200.00"
-  bid = "199.99"
-  ask = "200.01"
-  volume = "1000"
-  trade_size = "100"
-} | ConvertTo-Json
-
-Invoke-RestMethod http://127.0.0.1:8000/market/ticks -Method Post -ContentType "application/json" -Body $tick
-```
-
-## Live WebSocket topics
-
-Connect to exactly one topic per socket:
-
-| URL | Event source |
+| Surface | Purpose |
 | --- | --- |
-| `ws://127.0.0.1:8000/ws/ticks` | Accepted REST tick ingestion. |
-| `ws://127.0.0.1:8000/ws/candles` | Candle updates and completed candles. |
-| `ws://127.0.0.1:8000/ws/signals` | Risk decisions from signal generation. |
-| `ws://127.0.0.1:8000/ws/analytics` | Analytics snapshot after an outcome is recorded. |
+| `GET /market/status` | Provider connection and environment. |
+| `POST /market/ticks` | Route a normalized tick through the same pipeline used by background workers. |
+| `GET /market/ticks/latest/{symbol}` | Latest persisted tick. |
+| `GET /market/candles/latest/{symbol}?interval=1m` | Latest active or completed candle. |
+| `GET /market/candles/{symbol}` | Historical Alpaca candles, with safe tick aggregation fallback. |
+| `POST /signals/generate`, `GET /signals` | Create and inspect risk-managed signal decisions. |
+| `POST /analytics/outcomes`, `GET /analytics` | Record closed outcomes and retrieve performance analytics. |
+| `GET /trading/status` | Effective provider, mode, configured symbols, and safety gates. |
+| `GET /trading/account`, `/trading/positions`, `/trading/orders` | Broker account state, current holdings, and durable execution audit history. |
+| `GET /metrics` | Prometheus metrics. |
+| `GET /health`, `GET /ready` | Liveness and dependency readiness. |
 
-Every message has this envelope:
+WebSocket subscriptions use one topic per socket:
+
+| URL | Events |
+| --- | --- |
+| `ws://localhost:8000/ws/ticks` | Accepted ticks from REST or the background pipeline. |
+| `ws://localhost:8000/ws/candles` | Candle updates and completed candles. |
+| `ws://localhost:8000/ws/signals` | Risk decisions and generated signals. |
+| `ws://localhost:8000/ws/analytics` | Updated analytics snapshots. |
+
+Every event uses this envelope:
 
 ```json
 {
@@ -179,26 +186,70 @@ Every message has this envelope:
 
 ## Configuration
 
-Copy `.env.example` to `.env` and adjust the `TRADING_` variables. Set `TRADING_STORAGE_BACKEND=postgres` together with an async SQLAlchemy `TRADING_DATABASE_URL` and `TRADING_REDIS_URL` for durable deployment. Use `memory` only for isolated development/tests. For Docker Desktop, use `host.docker.internal` in the database URL; use `localhost` only when running the API directly on the host.
+Copy `.env.example` to `.env`. All non-secret behavior is driven through `TRADING_` settings, including providers, mode, symbols, intervals, strategy parameters, worker concurrency, and risk limits.
 
-Use `mock` providers for local deterministic testing. To use Alpaca without code changes, set both provider names to `alpaca`, add the appropriate keys, set `TRADING_SYMBOLS`, then choose the paper or explicitly guarded live mode. The SDK's stock stream subscribes to trade and quote WebSocket events; the application discards trades until it has a contemporaneous quote rather than inventing bid/ask values. [Alpaca real-time data documentation](https://alpaca.markets/sdks/python/api_reference/data/stock/live.html)
+Use `.env` only for local development and secrets. It is intentionally ignored by Git. The tracked `.env.example` contains placeholders only.
+
+Important values:
+
+| Setting | Purpose |
+| --- | --- |
+| `TRADING_MARKET_DATA_PROVIDER=alpaca` | Use Alpaca instead of the deterministic mock market-data provider. |
+| `TRADING_EXECUTION_PROVIDER=alpaca` | Use Alpaca account/position/order operations. |
+| `TRADING_ALPACA_DATA_FEED=iex` | Select the available Alpaca equities data feed. |
+| `TRADING_SYMBOLS=AAPL,MSFT` | Symbols monitored by the background pipeline. |
+| `TRADING_STRATEGY_INTERVAL=1m` | EMA strategy candle interval. |
+| `TRADING_STORAGE_BACKEND=postgres` | Use durable PostgreSQL stores instead of in-memory development stores. |
+| `TRADING_ORDER_SUBMISSION_ENABLED=false` | Master gate for any broker order. |
+| `TRADING_AUTOMATION_ENABLED=false` | Master gate for automatic execution. |
+
+Alpaca market data and execution are swappable provider implementations; mock providers remain available for deterministic local testing. The live data adapter waits for a contemporaneous quote before turning a trade into a tick, so it never invents bid/ask values. [Alpaca live stock-data SDK documentation](https://alpaca.markets/sdks/python/api_reference/data/stock/live.html)
+
+## What is still required before actual live-market trading
+
+The platform can be configured for live Alpaca order submission today, but enabling it now would be premature. Complete these items first.
+
+```mermaid
+flowchart LR
+    Paper["Controlled paper automation"] --> OMS["Order management and reconciliation"]
+    OMS --> Risk["Persistent risk firewall\nand emergency kill switch"]
+    Risk --> Recovery["Restart recovery\nand broker-state reconciliation"]
+    Recovery --> Validation["Replay, backtest, walk-forward\nand paper burn-in"]
+    Validation --> Ops["Secure deployment, monitoring\nbackups, alerting, runbooks"]
+    Ops --> Review["Live-trading go/no-go review"]
+```
+
+### Live-trading blockers
+
+- [ ] **Order lifecycle management:** continuously reconcile submitted, partial, filled, canceled, rejected, and replaced orders with Alpaca.
+- [ ] **Broker-side protection:** submit and maintain bracket/OCO stop-loss and take-profit orders. The risk engine calculates risk levels today, but entries are currently market orders.
+- [ ] **Persistent risk firewall:** add an independent kill switch, per-order notional/quantity caps, price collars, symbol allowlists, stale-data protection, and a complete daily realized/unrealized P&L ledger.
+- [ ] **Restart recovery:** restore indicator state, candles, portfolio state, and pending order state safely after deployment or failure.
+- [ ] **Execution-quality validation:** build deterministic replay/backtesting, transaction costs, spread, slippage, latency, partial-fill, and market-outage simulations.
+- [ ] **Operational resilience:** reconnect/backoff logic, rate-limit handling, market-session guardrails, alerts, and failure escalation.
+- [ ] **Secure deployment:** authentication for REST/WebSocket APIs, TLS, a secret manager, private networking, database backup/restore drills, and role-based operational access.
+- [ ] **Production topology:** split API, market-data, execution, and scheduler responsibilities; ensure only one execution owner can submit orders.
+- [ ] **Governance:** document change approval, test evidence, limits, incident procedures, and audit retention. If this becomes a customer-facing or broker/dealer product, obtain specialist legal and compliance advice.
+
+Alpaca paper trading is valuable, but it is still a simulation and does not model all real-world execution effects such as market impact, latency slippage, or queue position. [Alpaca paper-trading documentation](https://docs.alpaca.markets/us/docs/paper-trading)
 
 ## Development and verification
 
-Run all lint and tests:
-
 ```powershell
-.venv\Scripts\python.exe -m ruff check .
-.venv\Scripts\python.exe -m pytest
+uv run ruff check .
+uv run pytest
+uv build
+uv run alembic upgrade head --sql
 ```
 
-The current suite covers tick validation/order handling, XNYS candle aggregation, provider fallback, strategy lifecycle and EMA signals, risk rules, realized analytics, REST workflows, WebSocket broadcasts, request-correlation/error paths, and SQLite-backed durable repository round trips. Compose additionally validates the production PostgreSQL migration at startup.
+The automated suite currently covers configuration validation, market-data normalization, candle aggregation/history, provider contracts, EMA strategy behavior, risk controls, analytics, execution guards, durable repositories, REST workflows, WebSockets, request correlation, readiness, and worker processing.
 
-## Current scope and planned expansion
+For the containerized environment:
 
-This repository is a tested application foundation, not yet the full institutional deployment described in the original roadmap. The following are intentionally still pending:
+```powershell
+docker compose up --build --detach
+docker compose ps
+Invoke-RestMethod http://localhost:8000/ready
+```
 
-- The remaining requested strategy implementations beyond EMA crossover.
-- Authentication, authorization, deployment secrets, broker trade-update reconciliation, Redis-backed multi-process WebSocket fan-out, and production observability backends.
-
-Automatic execution remains disabled until enabled through the guarded environment settings above.
+Stop local containers with `docker compose down`. Use `docker compose down -v` only when deliberately discarding the Redis cache volume; it does not remove the externally managed PostgreSQL database.
