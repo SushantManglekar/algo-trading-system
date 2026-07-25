@@ -4,11 +4,13 @@ from __future__ import annotations
 
 from decimal import Decimal
 from enum import StrEnum
+from re import fullmatch
 from typing import Annotated
 
 from pydantic import BeforeValidator, Field, SecretStr, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
+from market_data.types import CandleInterval
 from risk.types import RiskPolicy
 
 
@@ -26,12 +28,32 @@ class StorageBackend(StrEnum):
     POSTGRES = "postgres"
 
 
+class ProviderName(StrEnum):
+    """Supported provider implementations; unknown values must fail at configuration load."""
+
+    ALPACA = "alpaca"
+    MOCK = "mock"
+
+
+class AlpacaDataFeed(StrEnum):
+    """Alpaca equities feed entitlement selected without changing provider code."""
+
+    IEX = "iex"
+    SIP = "sip"
+
+
 def _split_symbols(value: object) -> tuple[str, ...]:
     if isinstance(value, str):
-        return tuple(symbol.strip().upper() for symbol in value.split(",") if symbol.strip())
-    if isinstance(value, (list, tuple)):
-        return tuple(str(symbol).strip().upper() for symbol in value if str(symbol).strip())
-    raise ValueError("symbols must be a comma-separated string or sequence")
+        symbols = tuple(symbol.strip().upper() for symbol in value.split(",") if symbol.strip())
+    elif isinstance(value, (list, tuple)):
+        symbols = tuple(str(symbol).strip().upper() for symbol in value if str(symbol).strip())
+    else:
+        raise TypeError("symbols must be a comma-separated string or sequence")
+    if len(set(symbols)) != len(symbols):
+        raise ValueError("symbols must be unique")
+    if any(fullmatch(r"[A-Z][A-Z0-9.\-]{0,9}", symbol) is None for symbol in symbols):
+        raise ValueError("symbols must be valid uppercase equity symbols")
+    return symbols
 
 
 ConfiguredSymbols = Annotated[tuple[str, ...], BeforeValidator(_split_symbols)]
@@ -40,7 +62,9 @@ ConfiguredSymbols = Annotated[tuple[str, ...], BeforeValidator(_split_symbols)]
 class AppSettings(BaseSettings):
     """All application defaults are overridable through ``TRADING_`` environment variables."""
 
-    model_config = SettingsConfigDict(env_prefix="TRADING_", env_file=".env", extra="ignore")
+    model_config = SettingsConfigDict(
+        env_prefix="TRADING_", env_file=".env", extra="ignore", enable_decoding=False
+    )
 
     app_name: str = "Intraday Signal Platform"
     environment: str = "development"
@@ -55,8 +79,9 @@ class AppSettings(BaseSettings):
     target_atr_multiple: Decimal = Field(default=Decimal(3), gt=Decimal(0))
     trailing_stop_atr_multiple: Decimal = Field(default=Decimal(1), gt=Decimal(0))
     minimum_risk_reward: Decimal = Field(default=Decimal(2), ge=Decimal(1))
-    market_data_provider: str = "mock"
-    execution_provider: str = "mock"
+    market_data_provider: ProviderName = ProviderName.MOCK
+    execution_provider: ProviderName = ProviderName.MOCK
+    alpaca_data_feed: AlpacaDataFeed = AlpacaDataFeed.IEX
     trading_mode: TradingMode = "paper"
     order_submission_enabled: bool = False
     automation_enabled: bool = False
@@ -65,6 +90,7 @@ class AppSettings(BaseSettings):
     worker_count: int = Field(default=2, ge=1, le=32)
     worker_queue_size: int = Field(default=2_000, ge=100, le=100_000)
     atr_period: int = Field(default=14, ge=2, le=200)
+    strategy_interval: CandleInterval = CandleInterval.ONE_MINUTE
     ema_fast_period: int = Field(default=12, ge=2, le=500)
     ema_slow_period: int = Field(default=26, ge=3, le=1_000)
     ema_base_confidence: Decimal = Field(default=Decimal("0.60"), ge=Decimal(0), le=Decimal(1))
@@ -82,6 +108,11 @@ class AppSettings(BaseSettings):
 
     @model_validator(mode="after")
     def validate_live_trading_guard(self) -> AppSettings:
+        if (
+            self.market_data_provider is ProviderName.ALPACA
+            or self.execution_provider is ProviderName.ALPACA
+        ) and not self._has_alpaca_credentials():
+            raise ValueError("Alpaca providers require non-empty API key and secret")
         if self.trading_mode is TradingMode.LIVE and self.order_submission_enabled:
             confirmation = (
                 self.live_trading_confirmation.get_secret_value()
@@ -106,6 +137,14 @@ class AppSettings(BaseSettings):
         if not self.symbols and self.automation_enabled:
             raise ValueError("automation requires at least one configured symbol")
         return self
+
+    def _has_alpaca_credentials(self) -> bool:
+        return bool(
+            self.alpaca_api_key is not None
+            and self.alpaca_api_key.get_secret_value().strip()
+            and self.alpaca_api_secret is not None
+            and self.alpaca_api_secret.get_secret_value().strip()
+        )
 
     def risk_policy(self) -> RiskPolicy:
         """Construct the immutable policy consumed by the risk domain service."""

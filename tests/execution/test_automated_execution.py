@@ -34,6 +34,7 @@ def signal() -> RiskManagedSignal:
 @pytest.mark.asyncio
 async def test_automated_execution_reserves_idempotency_before_submission() -> None:
     settings = AppSettings(
+        _env_file=None,
         order_submission_enabled=True,
         automation_enabled=True,
         automation_confirmation="ENABLE_PAPER_AUTOMATION",

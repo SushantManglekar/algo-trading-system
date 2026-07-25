@@ -7,12 +7,13 @@ from collections.abc import AsyncIterator, Sequence
 from datetime import UTC, datetime
 from decimal import Decimal
 
+from alpaca.data.enums import DataFeed
 from alpaca.data.historical import StockHistoricalDataClient
 from alpaca.data.live import StockDataStream
 from alpaca.data.requests import StockBarsRequest
 from alpaca.data.timeframe import TimeFrame, TimeFrameUnit
 
-from config.settings import AppSettings
+from config.settings import AlpacaDataFeed, AppSettings, ProviderName
 from market_data.provider import MarketDataProvider
 from market_data.types import Candle, CandleInterval, HistoricalCandleRequest, MarketTick
 from providers.exceptions import ProviderNotConnectedError
@@ -22,14 +23,15 @@ class AlpacaMarketDataProvider(MarketDataProvider):
     """Streams trades only after a contemporaneous quote is known for each symbol."""
 
     def __init__(self, settings: AppSettings) -> None:
-        if settings.market_data_provider != "alpaca":
+        if settings.market_data_provider is not ProviderName.ALPACA:
             raise ValueError("Alpaca adapter requires market_data_provider=alpaca")
         if settings.alpaca_api_key is None or settings.alpaca_api_secret is None:
             raise ValueError("Alpaca API credentials are required")
         api_key = settings.alpaca_api_key.get_secret_value()
         secret = settings.alpaca_api_secret.get_secret_value()
+        self._feed = DataFeed.SIP if settings.alpaca_data_feed is AlpacaDataFeed.SIP else DataFeed.IEX
         self._history = StockHistoricalDataClient(api_key, secret)
-        self._stream = StockDataStream(api_key, secret)
+        self._stream = StockDataStream(api_key, secret, feed=self._feed)
         self._queue: asyncio.Queue[MarketTick | None] = asyncio.Queue()
         self._quotes: dict[str, tuple[Decimal, Decimal]] = {}
         self._subscriptions: set[str] = set()
@@ -104,6 +106,7 @@ class AlpacaMarketDataProvider(MarketDataProvider):
                 start=request.start_at,
                 end=request.end_at,
                 timeframe=self._timeframe(request.interval),
+                feed=self._feed,
             ),
         )
         return tuple(

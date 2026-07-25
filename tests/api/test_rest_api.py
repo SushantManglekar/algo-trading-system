@@ -10,6 +10,7 @@ from services.container import build_container
 
 def test_rest_api_runs_end_to_end_with_in_memory_dependencies() -> None:
     settings = AppSettings(
+        _env_file=None,
         analytics_starting_equity=Decimal(10_000),
         tick_buffer_per_symbol=100,
         candle_buffer_per_series=100,

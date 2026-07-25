@@ -11,6 +11,7 @@ def test_api_preserves_request_id_and_returns_validation_errors() -> None:
     application = create_app(
         build_container(
             AppSettings(
+                _env_file=None,
                 analytics_starting_equity=Decimal(10_000),
                 tick_buffer_per_symbol=100,
                 candle_buffer_per_series=100,

@@ -7,7 +7,7 @@ from dataclasses import dataclass
 from analytics.engine import AnalyticsEngine
 from analytics.outcome_store import InMemoryOutcomeStore, OutcomeStore
 from analytics.types import AnalyticsSettings
-from config.settings import AppSettings, StorageBackend
+from config.settings import AppSettings, ProviderName, StorageBackend
 from core.metrics import ApiMetrics
 from events.live_hub import LiveEventHub
 from execution.in_memory import InMemoryExecutionAuditStore
@@ -104,12 +104,12 @@ def build_container(settings: AppSettings | None = None) -> ApplicationContainer
         outcome_store = InMemoryOutcomeStore()
         execution_audit_store = InMemoryExecutionAuditStore()
     provider: MarketDataProvider
-    if resolved_settings.market_data_provider == "alpaca":
+    if resolved_settings.market_data_provider is ProviderName.ALPACA:
         provider = AlpacaMarketDataProvider(resolved_settings)
     else:
         provider = MockMarketDataProvider()
     broker: ExecutionProvider
-    if resolved_settings.execution_provider == "alpaca":
+    if resolved_settings.execution_provider is ProviderName.ALPACA:
         broker = AlpacaExecutionProvider(resolved_settings)
     else:
         broker = MockBrokerageProvider()
@@ -120,7 +120,7 @@ def build_container(settings: AppSettings | None = None) -> ApplicationContainer
             EmaCrossoverStrategy(
                 EmaCrossoverSettings(
                     symbol=symbol,
-                    interval=CandleInterval.ONE_MINUTE,
+                    interval=resolved_settings.strategy_interval,
                     fast_period=resolved_settings.ema_fast_period,
                     slow_period=resolved_settings.ema_slow_period,
                     base_confidence=resolved_settings.ema_base_confidence,

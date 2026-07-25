@@ -11,7 +11,7 @@ from alpaca.trading.enums import OrderSide as AlpacaOrderSide
 from alpaca.trading.enums import TimeInForce
 from alpaca.trading.requests import MarketOrderRequest
 
-from config.settings import AppSettings, TradingMode
+from config.settings import AppSettings, ProviderName, TradingMode
 from providers.execution import (
     AccountSnapshot,
     ExecutionOrder,
@@ -27,7 +27,7 @@ class AlpacaExecutionProvider(ExecutionProvider):
     """Alpaca execution adapter; order submission stays disabled unless explicitly enabled."""
 
     def __init__(self, settings: AppSettings) -> None:
-        if settings.execution_provider != "alpaca":
+        if settings.execution_provider is not ProviderName.ALPACA:
             raise ValueError("Alpaca adapter requires execution_provider=alpaca")
         if settings.alpaca_api_key is None or settings.alpaca_api_secret is None:
             raise ValueError("Alpaca API credentials are required")

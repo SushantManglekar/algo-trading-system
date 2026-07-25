@@ -28,6 +28,7 @@ def tick(timestamp: datetime, price: int) -> MarketTick:
 async def test_symbol_sharded_worker_runs_candle_strategy_risk_and_paper_execution() -> None:
     container = build_container(
         AppSettings(
+            _env_file=None,
             symbols="AAPL",
             order_submission_enabled=True,
             automation_enabled=True,

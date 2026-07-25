@@ -12,6 +12,7 @@ def test_websocket_topics_broadcast_rest_workflow_updates() -> None:
     application = create_app(
         build_container(
             AppSettings(
+                _env_file=None,
                 analytics_starting_equity=Decimal(10_000),
                 tick_buffer_per_symbol=100,
                 candle_buffer_per_series=100,
