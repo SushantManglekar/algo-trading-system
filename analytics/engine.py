@@ -2,13 +2,13 @@
 
 from __future__ import annotations
 
-import asyncio
 from collections import defaultdict
 from collections.abc import Callable
 from decimal import Decimal
 from statistics import mean
 from zoneinfo import ZoneInfo
 
+from analytics.outcome_store import InMemoryOutcomeStore, OutcomeStore
 from analytics.types import (
     AnalyticsSettings,
     AnalyticsSnapshot,
@@ -21,26 +21,18 @@ from analytics.types import (
 class AnalyticsEngine:
     """Accumulates only explicit closed outcomes; no forward-filled or simulated results."""
 
-    def __init__(self, settings: AnalyticsSettings) -> None:
+    def __init__(self, settings: AnalyticsSettings, outcome_store: OutcomeStore | None = None) -> None:
         self._settings = settings
         self._timezone = ZoneInfo(settings.reporting_timezone)
-        self._outcomes: list[ClosedSignalOutcome] = []
-        self._outcome_ids: set[str] = set()
-        self._lock = asyncio.Lock()
+        self._outcome_store = outcome_store or InMemoryOutcomeStore()
 
     async def record_outcome(self, outcome: ClosedSignalOutcome) -> None:
         """Record one unique closed outcome for later aggregate reporting."""
-        async with self._lock:
-            outcome_id = str(outcome.outcome_id)
-            if outcome_id in self._outcome_ids:
-                raise ValueError("outcome has already been recorded")
-            self._outcomes.append(outcome)
-            self._outcome_ids.add(outcome_id)
+        await self._outcome_store.append(outcome)
 
     async def snapshot(self) -> AnalyticsSnapshot:
         """Return a point-in-time snapshot over all outcomes recorded so far."""
-        async with self._lock:
-            outcomes = tuple(sorted(self._outcomes, key=lambda item: item.closed_at))
+        outcomes = tuple(await self._outcome_store.list_outcomes())
         return AnalyticsSnapshot(
             overall=self._statistics(outcomes),
             daily=self._period_statistics(outcomes, self._daily_key),

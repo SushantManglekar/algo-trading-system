@@ -18,6 +18,13 @@ class TradingMode(StrEnum):
     LIVE = "live"
 
 
+class StorageBackend(StrEnum):
+    """Persistence implementation selected for the running process."""
+
+    MEMORY = "memory"
+    POSTGRES = "postgres"
+
+
 class AppSettings(BaseSettings):
     """All application defaults are overridable through ``TRADING_`` environment variables."""
 
@@ -43,6 +50,9 @@ class AppSettings(BaseSettings):
     live_trading_confirmation: SecretStr | None = None
     alpaca_api_key: SecretStr | None = None
     alpaca_api_secret: SecretStr | None = None
+    storage_backend: StorageBackend = StorageBackend.MEMORY
+    database_url: str = "postgresql+asyncpg://trading:trading@localhost:5432/trading"
+    redis_url: str = "redis://localhost:6379/0"
 
     @model_validator(mode="after")
     def validate_live_trading_guard(self) -> AppSettings:

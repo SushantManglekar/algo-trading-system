@@ -4,8 +4,19 @@ from __future__ import annotations
 
 import asyncio
 from collections.abc import Sequence
+from typing import Protocol
 
 from risk.types import RiskManagedSignal
+
+
+class SignalStore(Protocol):
+    """Persistence boundary for approved, risk-managed signal proposals."""
+
+    async def append(self, signal: RiskManagedSignal) -> None:
+        """Persist an approved proposal."""
+
+    async def list_signals(self, symbol: str | None = None) -> Sequence[RiskManagedSignal]:
+        """Return stored proposals, optionally narrowed to one symbol."""
 
 
 class InMemorySignalStore:

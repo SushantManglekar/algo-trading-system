@@ -2,7 +2,7 @@
 
 A Python 3.12 FastAPI foundation for generating, risk-checking, and observing US equities trading signals. It is deliberately **signal-only**: it does not submit, modify, or manage broker orders.
 
-The running service uses a deterministic mock market-data provider and bounded in-memory stores. That makes the platform safe to develop and test locally without market-data or broker credentials.
+The deterministic mock market-data provider makes local development safe without broker credentials. The default local development composition uses bounded in-memory stores; Docker Compose uses PostgreSQL as the durable system of record and Redis to accelerate latest tick/candle reads.
 
 ## What it does today
 
@@ -12,6 +12,8 @@ The running service uses a deterministic mock market-data provider and bounded i
 - Runs isolated strategy plugins; EMA crossover is the first concrete strategy.
 - Converts directional intents into ATR-based, position-sized proposals with hard loss limits.
 - Calculates realized-outcome analytics after an explicitly supplied close.
+- Persists ticks, candles, signals, observed outcomes, and manual trade-journal records in PostgreSQL.
+- Uses Redis only for expiring latest-value cache entries; Redis loss never represents loss of trading history.
 - Exposes REST endpoints, interactive OpenAPI documentation, Prometheus metrics, and WebSocket topics.
 
 ## Signal lifecycle
@@ -41,14 +43,14 @@ flowchart TB
 
     API --> Container["Application container\nexplicit dependency injection"]
     Container --> Provider["Mock market-data provider"]
-    Container --> TickStore["In-memory tick store"]
-    Container --> CandleStore["In-memory candle store"]
-    Container --> SignalStore["In-memory signal store"]
     Container --> Domain["Market data · strategies · risk · analytics"]
+    Container --> Postgres["PostgreSQL\nticks · candles · signals · outcomes · journal"]
+    Container --> Redis["Redis\nlatest tick/candle cache"]
+    Postgres --> Redis
     API --> Metrics["Prometheus /metrics"]
 ```
 
-The application container owns all runtime dependencies. There is no global connection manager or global domain state, so test applications are isolated from one another.
+The application container owns all runtime dependencies. In-memory stores are an explicit development/test option; setting `TRADING_STORAGE_BACKEND=postgres` selects the durable repositories.
 
 ## Quick start
 
@@ -86,11 +88,15 @@ Copy-Item .env.example .env
 docker compose up --build
 ```
 
-The API is available on port `8000`. Docker Compose defines an HTTP health check and the image uses the locked production dependency set. Stop it with:
+The API is available on port `8000`; PostgreSQL is published at `5432` and Redis at `6379`. The API waits for both dependency health checks, applies the Alembic migration automatically, and then starts. Named Docker volumes retain PostgreSQL and Redis data across normal `docker compose down` operations.
+
+Stop it with:
 
 ```powershell
 docker compose down
 ```
+
+Use `docker compose down -v` only when deliberately discarding all local database and cache data.
 
 ## REST API
 
@@ -150,7 +156,9 @@ Every message has this envelope:
 
 ## Configuration
 
-Copy `.env.example` to `.env` and adjust the `TRADING_` variables. The currently supported settings cover environment name, in-memory retention, analytics starting equity/timezone, and risk policy limits.
+Copy `.env.example` to `.env` and adjust the `TRADING_` variables. Set `TRADING_STORAGE_BACKEND=postgres` together with an async SQLAlchemy `TRADING_DATABASE_URL` and `TRADING_REDIS_URL` for durable deployment. Use `memory` only for isolated development/tests. The Compose file sets its own service-host URLs, so host-local `.env` URLs can safely use `localhost`.
+
+The manual trade journal schema is ready for the forthcoming dashboard. A journal entry is an audit record only; it cannot submit, modify, or cancel a broker order.
 
 ## Development and verification
 
@@ -161,15 +169,14 @@ Run all lint and tests:
 .venv\Scripts\python.exe -m pytest
 ```
 
-The current suite covers tick validation/order handling, XNYS candle aggregation, provider fallback, strategy lifecycle and EMA signals, risk rules, realized analytics, REST workflows, WebSocket broadcasts, and request-correlation/error paths.
+The current suite covers tick validation/order handling, XNYS candle aggregation, provider fallback, strategy lifecycle and EMA signals, risk rules, realized analytics, REST workflows, WebSocket broadcasts, request-correlation/error paths, and SQLite-backed durable repository round trips. Compose additionally validates the production PostgreSQL migration at startup.
 
 ## Current scope and planned expansion
 
 This repository is a tested application foundation, not yet the full institutional deployment described in the original roadmap. The following are intentionally still pending:
 
-- Real market-data adapters such as Polygon, Alpaca, or Databento.
-- PostgreSQL, Redis, SQLAlchemy repositories, and Alembic migrations.
+- A connected Alpaca market-data adapter and account/execution workflows. The configuration and execution safety boundary exist, but order submission remains disabled by default.
 - The remaining requested strategy implementations beyond EMA crossover.
-- Authentication, authorization, deployment secrets, and production observability backends.
+- Authentication, authorization, deployment secrets, Redis-backed multi-process WebSocket fan-out, and production observability backends.
 
 Order execution is explicitly out of scope for this phase.

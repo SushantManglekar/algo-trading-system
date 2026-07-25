@@ -5,8 +5,24 @@ from __future__ import annotations
 import asyncio
 from collections.abc import Sequence
 from datetime import datetime
+from typing import Protocol
 
 from market_data.types import Candle, CandleInterval
+
+
+class CandleStore(Protocol):
+    """Persistence boundary for candle snapshots and completed-bar history."""
+
+    async def upsert(self, candle: Candle) -> None:
+        """Persist the current state of one candle."""
+
+    async def latest(self, symbol: str, interval: CandleInterval) -> Candle | None:
+        """Return the latest candle for a series."""
+
+    async def list_candles(
+        self, symbol: str, interval: CandleInterval, start_at: datetime, end_at: datetime
+    ) -> Sequence[Candle]:
+        """Return a bounded series in ascending start-time order."""
 
 
 class InMemoryCandleStore:
