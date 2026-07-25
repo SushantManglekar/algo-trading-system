@@ -36,6 +36,13 @@ async def ingest_tick(
     candle_update = await container.candle_engine.process_tick(processing.tick)
     for candle in (*candle_update.updated, *candle_update.completed):
         await container.candle_store.upsert(candle)
+    await container.live_hub.publish(
+        "ticks", "tick", processing.tick.model_dump(mode="json")
+    )
+    for candle in candle_update.updated:
+        await container.live_hub.publish("candles", "candle_updated", candle.model_dump(mode="json"))
+    for candle in candle_update.completed:
+        await container.live_hub.publish("candles", "candle_completed", candle.model_dump(mode="json"))
     container.metrics.ticks_ingested.labels(status="accepted").inc()
     return TickIngestResponse(
         accepted=True,

@@ -7,7 +7,7 @@ from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
 
-from api.routes import market, signals, system
+from api.routes import live, market, signals, system
 from services.container import ApplicationContainer, build_container
 
 
@@ -28,6 +28,7 @@ def create_app(container: ApplicationContainer | None = None) -> FastAPI:
     app.include_router(system.router)
     app.include_router(market.router)
     app.include_router(signals.router)
+    app.include_router(live.router)
     return app
 
 

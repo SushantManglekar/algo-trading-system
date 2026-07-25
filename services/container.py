@@ -8,6 +8,7 @@ from analytics.engine import AnalyticsEngine
 from analytics.types import AnalyticsSettings
 from config.settings import AppSettings
 from core.metrics import ApiMetrics
+from events.live_hub import LiveEventHub
 from market_data.candle_engine import CandleEngine, CandleEngineSettings
 from market_data.candle_history import HistoricalCandleService
 from market_data.candle_store import InMemoryCandleStore
@@ -35,6 +36,7 @@ class ApplicationContainer:
     risk_engine: RiskEngine
     analytics_engine: AnalyticsEngine
     metrics: ApiMetrics
+    live_hub: LiveEventHub
     started: bool = False
 
     async def start(self) -> None:
@@ -68,4 +70,5 @@ def build_container(settings: AppSettings | None = None) -> ApplicationContainer
             )
         ),
         metrics=ApiMetrics(),
+        live_hub=LiveEventHub(),
     )

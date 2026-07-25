@@ -22,6 +22,7 @@ async def generate_signal(
     container.metrics.signals_generated.labels(status=decision.status.value).inc()
     if decision.signal is not None:
         await container.signal_store.append(decision.signal)
+    await container.live_hub.publish("signals", "risk_decision", decision.model_dump(mode="json"))
     return GenerateSignalResponse(decision=decision)
 
 
@@ -39,6 +40,8 @@ async def record_outcome(
 ) -> RecordOutcomeResponse:
     """Record an observed close for realized signal analytics; no orders are placed."""
     await container.analytics_engine.record_outcome(outcome)
+    snapshot = await container.analytics_engine.snapshot()
+    await container.live_hub.publish("analytics", "analytics_updated", snapshot.model_dump(mode="json"))
     return RecordOutcomeResponse(outcome=outcome)
 
 
