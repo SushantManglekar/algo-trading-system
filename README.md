@@ -28,3 +28,13 @@ uv run --python 3.12 uvicorn api.app:app --host 127.0.0.1 --port 8000
 Open `http://127.0.0.1:8000/docs` for the interactive API. The default application uses the
 deterministic in-memory provider and stores; production provider and database adapters are
 injected through the application container as later phases introduce them.
+
+## Docker
+
+Copy `.env.example` to `.env`, then build and run the service:
+
+```powershell
+docker compose up --build
+```
+
+The container exposes port 8000 and has an HTTP health check at `/health`.
