@@ -1,0 +1,37 @@
+[build-system]
+requires = ["hatchling>=1.25"]
+build-backend = "hatchling.build"
+
+[project]
+name = "intraday-signal-platform"
+version = "0.1.0"
+description = "Institutional-grade US equities market-data and signal-generation platform."
+readme = "README.md"
+requires-python = ">=3.12"
+license = { text = "Proprietary" }
+authors = [{ name = "Algo Trading System" }]
+dependencies = ["pydantic>=2.10,<3"]
+
+[dependency-groups]
+dev = ["pytest>=8.3,<9", "pytest-asyncio>=0.24,<1", "ruff>=0.9,<1"]
+
+[tool.hatch.build.targets.wheel]
+packages = [
+  "api", "core", "config", "market_data", "providers", "strategies", "risk",
+  "signals", "analytics", "storage", "repositories", "services", "models",
+  "schemas", "workers", "events",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-ra -p no:cacheprovider"
+asyncio_mode = "auto"
+
+[tool.ruff]
+target-version = "py312"
+line-length = 100
+
+[tool.mypy]
+python_version = "3.12"
+strict = true
+warn_unreachable = true
