@@ -1,6 +1,7 @@
 """Isolated trading-signal strategy plugins."""
 
 from strategies.contracts import Strategy
+from strategies.ema_crossover import EmaCrossoverSettings, EmaCrossoverStrategy
 from strategies.engine import StrategyEngine
 from strategies.registry import StrategyRegistry
 from strategies.types import (
@@ -11,6 +12,8 @@ from strategies.types import (
 )
 
 __all__ = [
+    "EmaCrossoverSettings",
+    "EmaCrossoverStrategy",
     "Strategy",
     "StrategyDirection",
     "StrategyDispatchResult",
