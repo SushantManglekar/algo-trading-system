@@ -26,3 +26,16 @@ def test_live_order_submission_requires_explicit_confirmation() -> None:
             trading_mode=TradingMode.LIVE,
             order_submission_enabled=True,
         )
+
+
+def test_automation_requires_explicit_mode_confirmation_and_symbols() -> None:
+    with pytest.raises(ValidationError, match="mode-specific confirmation"):
+        AppSettings(order_submission_enabled=True, automation_enabled=True, symbols="AAPL")
+
+    settings = AppSettings(
+        order_submission_enabled=True,
+        automation_enabled=True,
+        automation_confirmation="ENABLE_PAPER_AUTOMATION",
+        symbols="aapl,msft",
+    )
+    assert settings.symbols == ("AAPL", "MSFT")

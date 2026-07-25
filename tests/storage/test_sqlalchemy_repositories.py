@@ -9,7 +9,15 @@ from analytics.types import AnalyticsSettings, ClosedSignalOutcome
 from journal.types import ManualTrade, ManualTradeSide
 from market_data.types import Candle, CandleInterval, MarketTick
 from models import CandleRecord, ManualTradeRecord, SignalOutcomeRecord, SignalRecord, TickRecord
+from providers.execution import (
+    AccountSnapshot,
+    ExecutionOrder,
+    OrderLifecycleStatus,
+    OrderRequest,
+    OrderSide,
+)
 from repositories.candle_repository import SqlAlchemyCandleStore
+from repositories.execution_repository import SqlAlchemyExecutionRepository
 from repositories.manual_trade_repository import SqlAlchemyManualTradeRepository
 from repositories.outcome_repository import SqlAlchemyOutcomeStore
 from repositories.signal_repository import SqlAlchemySignalStore
@@ -139,6 +147,41 @@ async def test_signals_outcomes_and_manual_journal_are_durable(
     )
     await journal.create(trade)
     assert await journal.list_trades("AAPL") == (trade,)
+
+
+@pytest.mark.asyncio
+async def test_execution_audit_reserves_idempotency_and_records_portfolio(
+    sessions: async_sessionmaker[AsyncSession],
+) -> None:
+    repository = SqlAlchemyExecutionRepository(sessions)
+    request = OrderRequest(
+        client_order_id="ats-storage-test",
+        symbol="AAPL",
+        quantity=Decimal(10),
+        side=OrderSide.BUY,
+    )
+    assert await repository.reserve_order(request, strategy="ema", signal_timestamp=request.created_at)
+    assert not await repository.reserve_order(request, strategy="ema", signal_timestamp=request.created_at)
+    await repository.record_order(
+        ExecutionOrder(
+            client_order_id=request.client_order_id,
+            broker_order_id="broker-order-1",
+            symbol="AAPL",
+            quantity=Decimal(10),
+            side=OrderSide.BUY,
+            status=OrderLifecycleStatus.SUBMITTED,
+        )
+    )
+    assert (await repository.list_orders())[0].broker_order_id == "broker-order-1"
+    await repository.record_portfolio(
+        AccountSnapshot(
+            account_id="test-account",
+            cash=Decimal(10_000),
+            equity=Decimal(10_000),
+            buying_power=Decimal(10_000),
+        ),
+        (),
+    )
 
 
 def test_all_durable_models_are_registered() -> None:

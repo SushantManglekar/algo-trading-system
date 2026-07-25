@@ -46,6 +46,10 @@ def test_rest_api_runs_end_to_end_with_in_memory_dependencies() -> None:
     with TestClient(application) as client:
         assert client.get("/health").json() == {"status": "ok"}
         assert client.get("/market/status").json()["connected"] is True
+        assert client.get("/trading/status").json()["mode"] == "paper"
+        assert client.get("/trading/account").json()["equity"] == "100000"
+        assert client.get("/trading/positions").json() == []
+        assert client.get("/trading/orders").json() == []
 
         ingestion = client.post("/market/ticks", json=tick_payload)
         assert ingestion.status_code == 202

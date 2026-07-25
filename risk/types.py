@@ -35,6 +35,9 @@ class RiskPolicy(BaseModel):
     target_atr_multiple: Annotated[Decimal, Field(gt=Decimal(0), max_digits=8, decimal_places=3)]
     trailing_stop_atr_multiple: Annotated[Decimal, Field(gt=Decimal(0), max_digits=8, decimal_places=3)]
     minimum_risk_reward: Annotated[Decimal, Field(ge=Decimal(1), max_digits=6, decimal_places=3)]
+    max_gross_exposure_fraction: Annotated[Decimal, Field(gt=Decimal(0), le=Decimal(1))] = Decimal("0.80")
+    minimum_cash_reserve_fraction: Annotated[Decimal, Field(ge=Decimal(0), lt=Decimal(1))] = Decimal("0.10")
+    max_open_positions: Annotated[int, Field(ge=1, le=500)] = 10
 
     @model_validator(mode="after")
     def validate_reward_policy(self) -> RiskPolicy:
@@ -53,6 +56,10 @@ class RiskContext(BaseModel):
     account_equity: PositiveAmount
     daily_realized_pnl: Decimal
     consecutive_losses: Annotated[int, Field(ge=0)]
+    available_cash: NonNegativeAmount = Decimal(0)
+    gross_exposure: NonNegativeAmount = Decimal(0)
+    open_positions: Annotated[int, Field(ge=0)] = 0
+    has_open_position: bool = False
     would_average_down: bool = False
 
 

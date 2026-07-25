@@ -16,6 +16,11 @@ class MarketDataProvider(ABC):
     def name(self) -> str:
         """Return a stable, configuration-facing provider identifier."""
 
+    @property
+    def is_connected(self) -> bool:
+        """Return lifecycle state when an adapter exposes it; legacy adapters default to active."""
+        return True
+
     @abstractmethod
     async def connect(self) -> None:
         """Create authenticated upstream connections and allocate resources."""

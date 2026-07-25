@@ -10,7 +10,7 @@ from uuid import uuid4
 
 from fastapi import FastAPI, Request
 
-from api.routes import live, market, signals, system
+from api.routes import live, market, signals, system, trading
 from core.logging import configure_json_logging
 from services.container import ApplicationContainer, build_container
 
@@ -58,6 +58,7 @@ def create_app(container: ApplicationContainer | None = None) -> FastAPI:
     app.include_router(system.router)
     app.include_router(market.router)
     app.include_router(signals.router)
+    app.include_router(trading.router)
     app.include_router(live.router)
     return app
 

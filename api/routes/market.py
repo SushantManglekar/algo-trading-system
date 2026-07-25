@@ -28,26 +28,16 @@ async def market_status(container: ApplicationContainer = Depends(get_container)
 async def ingest_tick(
     tick: MarketTick, container: ApplicationContainer = Depends(get_container)
 ) -> TickIngestResponse:
-    """Validate a tick, persist it, and update every configured candle interval."""
-    processing = await container.tick_processor.process(tick)
-    if not processing.accepted:
+    """Route a tick through the same persistence, strategy, risk, and execution pipeline as workers."""
+    accepted, reason, updated_count, completed_count = await container.trading_orchestrator.process_tick(tick)
+    if not accepted:
         container.metrics.ticks_ingested.labels(status="dropped").inc()
-        return TickIngestResponse(accepted=False, reason=processing.reason)
-    candle_update = await container.candle_engine.process_tick(processing.tick)
-    for candle in (*candle_update.updated, *candle_update.completed):
-        await container.candle_store.upsert(candle)
-    await container.live_hub.publish(
-        "ticks", "tick", processing.tick.model_dump(mode="json")
-    )
-    for candle in candle_update.updated:
-        await container.live_hub.publish("candles", "candle_updated", candle.model_dump(mode="json"))
-    for candle in candle_update.completed:
-        await container.live_hub.publish("candles", "candle_completed", candle.model_dump(mode="json"))
+        return TickIngestResponse(accepted=False, reason=reason)
     container.metrics.ticks_ingested.labels(status="accepted").inc()
     return TickIngestResponse(
         accepted=True,
-        updated_candle_count=len(candle_update.updated),
-        completed_candle_count=len(candle_update.completed),
+        updated_candle_count=updated_count,
+        completed_candle_count=completed_count,
     )
 
 

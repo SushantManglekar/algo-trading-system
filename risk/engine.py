@@ -73,6 +73,16 @@ class RiskEngine:
         if current_daily_loss + position_risk > maximum_daily_loss:
             return self._rejected(intent, "maximum_daily_loss_would_be_exceeded")
 
+        order_notional = Decimal(position_size) * context.entry_price
+        minimum_cash_reserve = context.account_equity * self._policy.minimum_cash_reserve_fraction
+        if context.available_cash and context.available_cash - order_notional < minimum_cash_reserve:
+            return self._rejected(intent, "minimum_cash_reserve_would_be_breached")
+        maximum_exposure = context.account_equity * self._policy.max_gross_exposure_fraction
+        if context.gross_exposure + order_notional > maximum_exposure:
+            return self._rejected(intent, "maximum_gross_exposure_would_be_exceeded")
+        if not context.has_open_position and context.open_positions >= self._policy.max_open_positions:
+            return self._rejected(intent, "maximum_open_positions_reached")
+
         risk_reward = expected_move / stop_distance
         signal = RiskManagedSignal(
             symbol=intent.symbol,
