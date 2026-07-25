@@ -3,11 +3,19 @@
 from __future__ import annotations
 
 from decimal import Decimal
+from enum import StrEnum
 
-from pydantic import Field
+from pydantic import Field, SecretStr, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 from risk.types import RiskPolicy
+
+
+class TradingMode(StrEnum):
+    """Alpaca account environment; paper is the only safe default."""
+
+    PAPER = "paper"
+    LIVE = "live"
 
 
 class AppSettings(BaseSettings):
@@ -28,6 +36,25 @@ class AppSettings(BaseSettings):
     target_atr_multiple: Decimal = Field(default=Decimal(3), gt=Decimal(0))
     trailing_stop_atr_multiple: Decimal = Field(default=Decimal(1), gt=Decimal(0))
     minimum_risk_reward: Decimal = Field(default=Decimal(2), ge=Decimal(1))
+    market_data_provider: str = "alpaca"
+    execution_provider: str = "alpaca"
+    trading_mode: TradingMode = "paper"
+    order_submission_enabled: bool = False
+    live_trading_confirmation: SecretStr | None = None
+    alpaca_api_key: SecretStr | None = None
+    alpaca_api_secret: SecretStr | None = None
+
+    @model_validator(mode="after")
+    def validate_live_trading_guard(self) -> AppSettings:
+        if self.trading_mode is TradingMode.LIVE and self.order_submission_enabled:
+            confirmation = (
+                self.live_trading_confirmation.get_secret_value()
+                if self.live_trading_confirmation is not None
+                else ""
+            )
+            if confirmation != "ENABLE_LIVE_TRADING":
+                raise ValueError("live order submission requires explicit confirmation")
+        return self
 
     def risk_policy(self) -> RiskPolicy:
         """Construct the immutable policy consumed by the risk domain service."""
