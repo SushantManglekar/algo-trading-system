@@ -2,7 +2,6 @@
 
 from repositories.candle_repository import SqlAlchemyCandleStore
 from repositories.execution_repository import SqlAlchemyExecutionRepository
-from repositories.manual_trade_repository import SqlAlchemyManualTradeRepository
 from repositories.outcome_repository import SqlAlchemyOutcomeStore
 from repositories.signal_repository import SqlAlchemySignalStore
 from repositories.tick_repository import SqlAlchemyTickStore
@@ -10,7 +9,6 @@ from repositories.tick_repository import SqlAlchemyTickStore
 __all__ = [
     "SqlAlchemyCandleStore",
     "SqlAlchemyExecutionRepository",
-    "SqlAlchemyManualTradeRepository",
     "SqlAlchemyOutcomeStore",
     "SqlAlchemySignalStore",
     "SqlAlchemyTickStore",

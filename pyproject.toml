@@ -36,7 +36,7 @@ dev = [
 [tool.hatch.build.targets.wheel]
 packages = [
   "api", "core", "config", "market_data", "providers", "strategies", "risk",
-  "signals", "analytics", "execution", "journal", "storage", "repositories", "services", "models",
+  "signals", "analytics", "execution", "storage", "repositories", "services", "models",
   "schemas", "workers", "events",
 ]
 

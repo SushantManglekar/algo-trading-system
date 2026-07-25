@@ -6,9 +6,8 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from analytics.engine import AnalyticsEngine
 from analytics.types import AnalyticsSettings, ClosedSignalOutcome
-from journal.types import ManualTrade, ManualTradeSide
 from market_data.types import Candle, CandleInterval, MarketTick
-from models import CandleRecord, ManualTradeRecord, SignalOutcomeRecord, SignalRecord, TickRecord
+from models import CandleRecord, SignalOutcomeRecord, SignalRecord, TickRecord
 from providers.execution import (
     AccountSnapshot,
     ExecutionOrder,
@@ -18,7 +17,6 @@ from providers.execution import (
 )
 from repositories.candle_repository import SqlAlchemyCandleStore
 from repositories.execution_repository import SqlAlchemyExecutionRepository
-from repositories.manual_trade_repository import SqlAlchemyManualTradeRepository
 from repositories.outcome_repository import SqlAlchemyOutcomeStore
 from repositories.signal_repository import SqlAlchemySignalStore
 from repositories.tick_repository import SqlAlchemyTickStore
@@ -112,14 +110,13 @@ async def test_ticks_and_candles_round_trip_through_sqlalchemy(
 
 
 @pytest.mark.asyncio
-async def test_signals_outcomes_and_manual_journal_are_durable(
+async def test_signals_and_outcomes_are_durable(
     sessions: async_sessionmaker[AsyncSession],
 ) -> None:
     opened_at = datetime(2026, 7, 25, 13, 30, tzinfo=UTC)
     managed_signal = signal(opened_at)
     signal_store = SqlAlchemySignalStore(sessions)
     outcome_store = SqlAlchemyOutcomeStore(sessions)
-    journal = SqlAlchemyManualTradeRepository(sessions)
 
     await signal_store.append(managed_signal)
     assert await signal_store.list_signals("AAPL") == (managed_signal,)
@@ -135,19 +132,6 @@ async def test_signals_outcomes_and_manual_journal_are_durable(
     )
     await engine.record_outcome(outcome)
     assert (await engine.snapshot()).overall.total_signals == 1
-
-    trade = ManualTrade(
-        symbol="AAPL",
-        side=ManualTradeSide.BUY,
-        entry_at=opened_at,
-        entry_price=Decimal(200),
-        quantity=Decimal(10),
-        notes="manual paper entry",
-        tags=("paper", "ema"),
-    )
-    await journal.create(trade)
-    assert await journal.list_trades("AAPL") == (trade,)
-
 
 @pytest.mark.asyncio
 async def test_execution_audit_reserves_idempotency_and_records_portfolio(
@@ -185,7 +169,7 @@ async def test_execution_audit_reserves_idempotency_and_records_portfolio(
 
 
 def test_all_durable_models_are_registered() -> None:
-    assert {"ticks", "candles", "signals", "signal_outcomes", "manual_trade_journal"} <= set(
+    assert {"ticks", "candles", "signals", "signal_outcomes", "execution_orders"} <= set(
         Base.metadata.tables
     )
-    assert all((TickRecord, CandleRecord, SignalRecord, SignalOutcomeRecord, ManualTradeRecord))
+    assert all((TickRecord, CandleRecord, SignalRecord, SignalOutcomeRecord))

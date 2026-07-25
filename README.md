@@ -12,7 +12,7 @@ The deterministic mock market-data provider makes local development safe without
 - Runs isolated strategy plugins; EMA crossover is the first concrete strategy.
 - Converts directional intents into ATR-based, position-sized proposals with hard loss limits.
 - Calculates realized-outcome analytics after an explicitly supplied close.
-- Persists ticks, candles, signals, observed outcomes, and manual trade-journal records in PostgreSQL.
+- Persists ticks, candles, signals, observed outcomes, automated orders, and account/position snapshots in PostgreSQL.
 - Uses Redis only for expiring latest-value cache entries; Redis loss never represents loss of trading history.
 - Runs a bounded, symbol-sharded worker pipeline: tick → completed candle → EMA/ATR → portfolio risk → idempotent execution audit → broker order.
 - Exposes backend account, holdings, execution, and P/L inputs at `/trading/*` for the future dashboard.
@@ -46,7 +46,7 @@ flowchart TB
     API --> Container["Application container\nexplicit dependency injection"]
     Container --> Provider["Mock market-data provider"]
     Container --> Domain["Market data · strategies · risk · analytics"]
-    Container --> Postgres["PostgreSQL\nticks · candles · signals · outcomes · journal"]
+    Container --> Postgres["PostgreSQL\nticks · candles · signals · outcomes · execution audit"]
     Container --> Redis["Redis\nlatest tick/candle cache"]
     Postgres --> Redis
     API --> Metrics["Prometheus /metrics"]
@@ -180,8 +180,6 @@ Every message has this envelope:
 Copy `.env.example` to `.env` and adjust the `TRADING_` variables. Set `TRADING_STORAGE_BACKEND=postgres` together with an async SQLAlchemy `TRADING_DATABASE_URL` and `TRADING_REDIS_URL` for durable deployment. Use `memory` only for isolated development/tests. The Compose file sets its own service-host URLs, so host-local `.env` URLs can safely use `localhost`.
 
 Use `mock` providers for local deterministic testing. To use Alpaca without code changes, set both provider names to `alpaca`, add the appropriate keys, set `TRADING_SYMBOLS`, then choose the paper or explicitly guarded live mode. The SDK's stock stream subscribes to trade and quote WebSocket events; the application discards trades until it has a contemporaneous quote rather than inventing bid/ask values. [Alpaca real-time data documentation](https://alpaca.markets/sdks/python/api_reference/data/stock/live.html)
-
-The manual trade journal schema is ready for the forthcoming dashboard. A journal entry is an audit record only; it cannot submit, modify, or cancel a broker order.
 
 ## Development and verification
 
