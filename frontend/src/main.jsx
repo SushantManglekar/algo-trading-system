@@ -34,23 +34,41 @@ function Sparkline({ positive = true }) {
 
 function PriceChart({ candles }) {
   const data = candles.slice(-50);
+  const [hoveredIndex, setHoveredIndex] = useState(null);
   const chart = useMemo(() => {
-    if (!data.length) return { points: [], low: 0, high: 0, latest: null };
+    if (!data.length) return { points: [], low: 0, high: 0, latest: null, upward: true };
     const values = data.flatMap((item) => [Number(item.high), Number(item.low)]);
     const low = Math.min(...values); const high = Math.max(...values); const range = Math.max(high - low, 0.01);
-    return { low, high, latest: data.at(-1), points: data.map((item, index) => ({
+    return { low, high, latest: data.at(-1), upward: Number(data.at(-1).close) >= Number(data[0].open), points: data.map((item, index) => ({
       x: 8 + index * (272 / Math.max(data.length - 1, 1)),
       y: 110 - ((Number(item.close) - low) / range) * 92,
     })) };
   }, [data]);
   if (!chart.points.length) return <div className="grid h-full place-items-center text-sm text-slate-400">Historical candles will appear here.</div>;
+  const hovered = hoveredIndex === null ? null : data[hoveredIndex];
+  const hoveredPoint = hoveredIndex === null ? null : chart.points[hoveredIndex];
+  const color = chart.upward ? "#16a34a" : "#ef4444";
+  const gradientId = chart.upward ? "price-area-up" : "price-area-down";
   const line = chart.points.map((point) => `${point.x},${point.y}`).join(" ");
+  const area = `${line} 280,112 8,112`;
   const labels = [chart.high, chart.low + (chart.high - chart.low) / 2, chart.low];
-  return <svg className="h-full w-full" viewBox="0 0 340 126" preserveAspectRatio="none" role="img" aria-label="Historical closing-price chart with price scale">
+  const selectPoint = (event) => {
+    const bounds = event.currentTarget.getBoundingClientRect();
+    const relativeX = Math.max(0, Math.min(bounds.width, event.clientX - bounds.left));
+    setHoveredIndex(Math.round((relativeX / bounds.width) * (data.length - 1)));
+  };
+  return <svg className="h-full w-full cursor-crosshair" viewBox="0 0 340 126" preserveAspectRatio="none" role="img" aria-label="Interactive historical closing-price chart with price scale" onMouseMove={selectPoint} onMouseLeave={() => setHoveredIndex(null)}>
+    <defs>
+      <linearGradient id={gradientId} x1="0" x2="0" y1="0" y2="1"><stop offset="0%" stopColor={color} stopOpacity="0.28" /><stop offset="100%" stopColor={color} stopOpacity="0" /></linearGradient>
+      <filter id="trend-glow" x="-20%" y="-30%" width="140%" height="160%"><feGaussianBlur stdDeviation="3" /></filter>
+    </defs>
     {[18, 64, 110].map((y) => <line key={y} x1="0" y1={y} x2="284" y2={y} stroke="currentColor" strokeOpacity="0.08" />)}
-    <polyline points={line} fill="none" stroke="#2563eb" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" />
-    <circle cx={chart.points.at(-1).x} cy={chart.points.at(-1).y} r="4" fill="#2563eb" stroke="white" strokeWidth="2" />
+    <polygon points={area} fill={`url(#${gradientId})`} />
+    <polyline points={line} fill="none" stroke={color} strokeOpacity="0.35" strokeWidth="7" strokeLinecap="round" strokeLinejoin="round" filter="url(#trend-glow)" />
+    <polyline points={line} fill="none" stroke={color} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" />
+    <circle cx={chart.points.at(-1).x} cy={chart.points.at(-1).y} r="4" fill={color} stroke="white" strokeWidth="2" />
     {labels.map((price, index) => <text key={price} x="292" y={22 + index * 46} fill="currentColor" fillOpacity="0.5" fontSize="9">${price.toFixed(2)}</text>)}
+    {hoveredPoint && <g pointerEvents="none"><line x1={hoveredPoint.x} y1="10" x2={hoveredPoint.x} y2="112" stroke={color} strokeOpacity="0.45" strokeDasharray="3 3" /><line x1="0" y1={hoveredPoint.y} x2="284" y2={hoveredPoint.y} stroke={color} strokeOpacity="0.2" strokeDasharray="3 3" /><circle cx={hoveredPoint.x} cy={hoveredPoint.y} r="4" fill="white" stroke={color} strokeWidth="2" /><g transform={`translate(${Math.min(188, Math.max(10, hoveredPoint.x - 40))}, 14)`}><rect width="92" height="35" rx="4" fill="#0f172a" fillOpacity="0.94" /><text x="6" y="12" fill="white" fontSize="8" fontWeight="700">${Number(hovered.close).toFixed(2)}</text><text x="6" y="24" fill="#cbd5e1" fontSize="6.5">O ${Number(hovered.open).toFixed(2)} · H ${Number(hovered.high).toFixed(2)}</text><text x="6" y="31" fill="#cbd5e1" fontSize="6.5">L ${Number(hovered.low).toFixed(2)} · {new Date(hovered.start_at).toLocaleDateString("en-US", { month: "short", day: "numeric" })}</text></g></g>}
   </svg>;
 }
 
