@@ -32,6 +32,25 @@ function Sparkline({ positive = true }) {
   </svg>;
 }
 
+const PLOT_LEFT = 8;
+const PLOT_WIDTH = 272;
+const VIEW_WIDTH = 340;
+
+function smoothPath(points) {
+  if (points.length < 2) return "";
+  let path = `M ${points[0].x} ${points[0].y}`;
+  for (let index = 0; index < points.length - 1; index += 1) {
+    const current = points[index]; const next = points[index + 1];
+    const previous = points[index - 1] || current; const after = points[index + 2] || next;
+    const controlOneX = current.x + (next.x - previous.x) / 6;
+    const controlOneY = current.y + (next.y - previous.y) / 6;
+    const controlTwoX = next.x - (after.x - current.x) / 6;
+    const controlTwoY = next.y - (after.y - current.y) / 6;
+    path += ` C ${controlOneX} ${controlOneY}, ${controlTwoX} ${controlTwoY}, ${next.x} ${next.y}`;
+  }
+  return path;
+}
+
 function PriceChart({ candles }) {
   const data = candles.slice(-50);
   const [hoveredIndex, setHoveredIndex] = useState(null);
@@ -40,7 +59,7 @@ function PriceChart({ candles }) {
     const values = data.flatMap((item) => [Number(item.high), Number(item.low)]);
     const low = Math.min(...values); const high = Math.max(...values); const range = Math.max(high - low, 0.01);
     return { low, high, latest: data.at(-1), upward: Number(data.at(-1).close) >= Number(data[0].open), points: data.map((item, index) => ({
-      x: 8 + index * (272 / Math.max(data.length - 1, 1)),
+      x: PLOT_LEFT + index * (PLOT_WIDTH / Math.max(data.length - 1, 1)),
       y: 110 - ((Number(item.close) - low) / range) * 92,
     })) };
   }, [data]);
@@ -49,13 +68,14 @@ function PriceChart({ candles }) {
   const hoveredPoint = hoveredIndex === null ? null : chart.points[hoveredIndex];
   const color = chart.upward ? "#16a34a" : "#ef4444";
   const gradientId = chart.upward ? "price-area-up" : "price-area-down";
-  const line = chart.points.map((point) => `${point.x},${point.y}`).join(" ");
-  const area = `${line} 280,112 8,112`;
+  const line = smoothPath(chart.points);
+  const area = `${line} L ${PLOT_LEFT + PLOT_WIDTH} 112 L ${PLOT_LEFT} 112 Z`;
   const labels = [chart.high, chart.low + (chart.high - chart.low) / 2, chart.low];
   const selectPoint = (event) => {
     const bounds = event.currentTarget.getBoundingClientRect();
-    const relativeX = Math.max(0, Math.min(bounds.width, event.clientX - bounds.left));
-    setHoveredIndex(Math.round((relativeX / bounds.width) * (data.length - 1)));
+    const viewX = ((event.clientX - bounds.left) / bounds.width) * VIEW_WIDTH;
+    const clampedX = Math.max(PLOT_LEFT, Math.min(PLOT_LEFT + PLOT_WIDTH, viewX));
+    setHoveredIndex(Math.round(((clampedX - PLOT_LEFT) / PLOT_WIDTH) * (data.length - 1)));
   };
   return <svg className="h-full w-full cursor-crosshair" viewBox="0 0 340 126" preserveAspectRatio="none" role="img" aria-label="Interactive historical closing-price chart with price scale" onMouseMove={selectPoint} onMouseLeave={() => setHoveredIndex(null)}>
     <defs>
@@ -63,9 +83,9 @@ function PriceChart({ candles }) {
       <filter id="trend-glow" x="-20%" y="-30%" width="140%" height="160%"><feGaussianBlur stdDeviation="3" /></filter>
     </defs>
     {[18, 64, 110].map((y) => <line key={y} x1="0" y1={y} x2="284" y2={y} stroke="currentColor" strokeOpacity="0.08" />)}
-    <polygon points={area} fill={`url(#${gradientId})`} />
-    <polyline points={line} fill="none" stroke={color} strokeOpacity="0.35" strokeWidth="7" strokeLinecap="round" strokeLinejoin="round" filter="url(#trend-glow)" />
-    <polyline points={line} fill="none" stroke={color} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" />
+    <path d={area} fill={`url(#${gradientId})`} style={{ transition: "d 280ms ease-out" }} />
+    <path d={line} fill="none" stroke={color} strokeOpacity="0.28" strokeWidth="5" strokeLinecap="round" strokeLinejoin="round" filter="url(#trend-glow)" style={{ transition: "d 280ms ease-out" }} />
+    <path d={line} fill="none" stroke={color} strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" style={{ transition: "d 280ms ease-out" }} />
     <circle cx={chart.points.at(-1).x} cy={chart.points.at(-1).y} r="4" fill={color} stroke="white" strokeWidth="2" />
     {labels.map((price, index) => <text key={price} x="292" y={22 + index * 46} fill="currentColor" fillOpacity="0.5" fontSize="9">${price.toFixed(2)}</text>)}
     {hoveredPoint && <g pointerEvents="none"><line x1={hoveredPoint.x} y1="10" x2={hoveredPoint.x} y2="112" stroke={color} strokeOpacity="0.45" strokeDasharray="3 3" /><line x1="0" y1={hoveredPoint.y} x2="284" y2={hoveredPoint.y} stroke={color} strokeOpacity="0.2" strokeDasharray="3 3" /><circle cx={hoveredPoint.x} cy={hoveredPoint.y} r="4" fill="white" stroke={color} strokeWidth="2" /><g transform={`translate(${Math.min(188, Math.max(10, hoveredPoint.x - 40))}, 14)`}><rect width="92" height="35" rx="4" fill="#0f172a" fillOpacity="0.94" /><text x="6" y="12" fill="white" fontSize="8" fontWeight="700">${Number(hovered.close).toFixed(2)}</text><text x="6" y="24" fill="#cbd5e1" fontSize="6.5">O ${Number(hovered.open).toFixed(2)} · H ${Number(hovered.high).toFixed(2)}</text><text x="6" y="31" fill="#cbd5e1" fontSize="6.5">L ${Number(hovered.low).toFixed(2)} · {new Date(hovered.start_at).toLocaleDateString("en-US", { month: "short", day: "numeric" })}</text></g></g>}
@@ -112,6 +132,7 @@ function App() {
   const [selectedSymbol, setSelectedSymbol] = useState(null);
   const [candles, setCandles] = useState([]);
   const [chartRange, setChartRange] = useState("1W");
+  const [chartLive, setChartLive] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [dark, setDark] = useState(() => localStorage.getItem("dashboard-theme") === "dark");
   const [error, setError] = useState("");
@@ -131,6 +152,28 @@ function App() {
     const end = new Date(); const start = new Date(end.getTime() - days[chartRange] * 86_400_000);
     request(`/market/candles/${selectedSymbol}?interval=${configuration.strategy.interval}&start_at=${encodeURIComponent(start.toISOString())}&end_at=${encodeURIComponent(end.toISOString())}`).then(setCandles).catch(() => setCandles([]));
   }, [selectedSymbol, configuration?.strategy?.interval, chartRange]);
+  useEffect(() => {
+    if (!selectedSymbol || !configuration) { setChartLive(false); return undefined; }
+    const scheme = window.location.protocol === "https:" ? "wss" : "ws";
+    const socket = new WebSocket(`${scheme}://${window.location.host}/ws/candles`);
+    socket.onopen = () => setChartLive(true);
+    socket.onclose = () => setChartLive(false);
+    socket.onerror = () => setChartLive(false);
+    socket.onmessage = ({ data }) => {
+      try {
+        const message = JSON.parse(data);
+        const candle = message.data;
+        if (!candle || candle.symbol !== selectedSymbol || candle.interval !== configuration.strategy.interval) return;
+        if (message.event !== "candle_updated" && message.event !== "candle_completed") return;
+        setCandles((existing) => {
+          const index = existing.findIndex((item) => item.start_at === candle.start_at && item.interval === candle.interval);
+          const next = index === -1 ? [...existing, candle] : existing.map((item, itemIndex) => itemIndex === index ? candle : item);
+          return next.sort((left, right) => new Date(left.start_at) - new Date(right.start_at));
+        });
+      } catch { setChartLive(false); }
+    };
+    return () => socket.close();
+  }, [selectedSymbol, configuration?.strategy?.interval]);
   const save = async (payload) => {
     try { const next = await request("/control", { method: "PUT", body: JSON.stringify(payload) }); setConfiguration(next); setSelectedSymbol(next.symbols[0] || null); setSettingsOpen(false); await refresh(); }
     catch (reason) { setError(reason.message); }
@@ -151,7 +194,7 @@ function App() {
       <section className="mt-5 grid shrink-0 grid-cols-2 gap-3 lg:grid-cols-4"><Metric label="Portfolio value" value={account ? money.format(account.equity) : "—"} /><Metric label="Buying power" value={account ? money.format(account.buying_power) : "—"} /><Metric label="Today" value={account ? `${dailyPnl >= 0 ? "+" : ""}${money.format(dailyPnl)}` : "—"} positive={dailyPnl >= 0} /><Metric label="Open positions" value={String(snapshot.positions.length)} /></section>
       <section className="mt-4 grid min-h-0 flex-1 grid-cols-1 gap-4 lg:grid-cols-[210px_minmax(0,1fr)_300px]">
         <aside className="panel hidden min-h-0 flex-col p-4 lg:flex"><div className="flex items-center justify-between"><h2 className="text-sm font-semibold">Watchlist</h2><span className="text-xs text-slate-400">{configuration?.symbols.length || 0}</span></div><div className="mt-4 space-y-1 overflow-y-auto">{configuration?.symbols.map((symbol) => <button key={symbol} onClick={() => setSelectedSymbol(symbol)} className={`flex w-full items-center justify-between rounded-xl px-3 py-3 text-left text-sm font-medium transition ${symbol === selectedSymbol ? "bg-blue-600 text-white shadow-md shadow-blue-600/20" : "text-slate-600 hover:bg-slate-50 dark:text-slate-300 dark:hover:bg-slate-800"}`}><span>{symbol}</span><span className={`h-1.5 w-1.5 rounded-full ${symbol === selectedSymbol ? "bg-white" : "bg-blue-500"}`} /></button>)}</div><div className="mt-auto rounded-xl bg-blue-50 p-3 dark:bg-blue-950/40"><p className="text-xs font-semibold text-blue-700 dark:text-blue-300">{configuration?.monitoring_enabled ? "Monitoring active" : "Monitoring paused"}</p><p className="mt-1 text-[11px] leading-4 text-blue-600/80 dark:text-blue-300/70">{snapshot.status?.pipeline_running ? "Live worker connected" : "Worker waiting"}</p></div></aside>
-        <section className="panel flex min-h-0 flex-col p-5"><div className="flex items-start justify-between"><div><p className="metric-label">Market overview</p><div className="mt-1 flex items-baseline gap-3"><h2 className="text-2xl font-semibold tracking-tight">{selectedSymbol || "Select a symbol"}</h2>{marketSummary && <><span className="text-lg font-semibold">${marketSummary.close.toFixed(2)}</span><span className={`text-xs font-semibold ${marketSummary.change >= 0 ? "text-emerald-600" : "text-red-500"}`}>{marketSummary.change >= 0 ? "+" : ""}${marketSummary.change.toFixed(2)} ({marketSummary.changePercent.toFixed(2)}%)</span></>}</div></div><div className="rounded-lg bg-slate-50 px-2.5 py-1.5 text-xs font-medium text-slate-500 dark:bg-slate-800 dark:text-slate-300">{configuration?.strategy.interval || "—"}</div></div><div className="mt-3 flex items-center justify-between gap-3"><div className="flex gap-3 overflow-hidden">{marketSummary ? <><OhlcValue label="O" value={marketSummary.open} /><OhlcValue label="H" value={marketSummary.high} /><OhlcValue label="L" value={marketSummary.low} /><OhlcValue label="C" value={marketSummary.close} /></> : <span className="text-xs text-slate-400">OHLC values appear when data is available.</span>}</div><div className="flex shrink-0 rounded-lg bg-slate-50 p-1 dark:bg-slate-800">{["1D", "1W", "1M", "1Y", "MAX"].map((range) => <button key={range} onClick={() => setChartRange(range)} className={`rounded-md px-2 py-1 text-[10px] font-semibold transition ${chartRange === range ? "bg-white text-blue-600 shadow-sm dark:bg-slate-700 dark:text-blue-300" : "text-slate-400 hover:text-slate-700 dark:hover:text-slate-200"}`}>{range}</button>)}</div></div><div className="mt-2 min-h-0 flex-1"><PriceChart candles={candles} /></div><div className="mt-2 flex items-center justify-between border-t border-slate-100 pt-3 text-xs text-slate-400 dark:border-slate-800"><span>{chartRange} performance</span><span>{candles.length ? `${candles.length} candles` : "No saved candles"}</span></div></section>
+        <section className="panel flex min-h-0 flex-col p-5"><div className="flex items-start justify-between"><div><p className="metric-label">Market overview</p><div className="mt-1 flex items-baseline gap-3"><h2 className="text-2xl font-semibold tracking-tight">{selectedSymbol || "Select a symbol"}</h2>{marketSummary && <><span className="text-lg font-semibold">${marketSummary.close.toFixed(2)}</span><span className={`text-xs font-semibold ${marketSummary.change >= 0 ? "text-emerald-600" : "text-red-500"}`}>{marketSummary.change >= 0 ? "+" : ""}${marketSummary.change.toFixed(2)} ({marketSummary.changePercent.toFixed(2)}%)</span></>}</div></div><div className="rounded-lg bg-slate-50 px-2.5 py-1.5 text-xs font-medium text-slate-500 dark:bg-slate-800 dark:text-slate-300">{configuration?.strategy.interval || "—"}</div></div><div className="mt-3 flex items-center justify-between gap-3"><div className="flex gap-3 overflow-hidden">{marketSummary ? <><OhlcValue label="O" value={marketSummary.open} /><OhlcValue label="H" value={marketSummary.high} /><OhlcValue label="L" value={marketSummary.low} /><OhlcValue label="C" value={marketSummary.close} /></> : <span className="text-xs text-slate-400">OHLC values appear when data is available.</span>}</div><div className="flex shrink-0 rounded-lg bg-slate-50 p-1 dark:bg-slate-800">{["1D", "1W", "1M", "1Y", "MAX"].map((range) => <button key={range} onClick={() => setChartRange(range)} className={`rounded-md px-2 py-1 text-[10px] font-semibold transition ${chartRange === range ? "bg-white text-blue-600 shadow-sm dark:bg-slate-700 dark:text-blue-300" : "text-slate-400 hover:text-slate-700 dark:hover:text-slate-200"}`}>{range}</button>)}</div></div><div className="mt-2 min-h-0 flex-1"><PriceChart candles={candles} /></div><div className="mt-2 flex items-center justify-between border-t border-slate-100 pt-3 text-xs text-slate-400 dark:border-slate-800"><span className="flex items-center gap-1.5"><i className={`h-1.5 w-1.5 rounded-full ${chartLive ? "bg-emerald-500 shadow-[0_0_8px_rgba(34,197,94,.8)]" : "bg-slate-300 dark:bg-slate-700"}`} />{chartLive ? "Live updates" : "Connecting live feed"}</span><span>{candles.length ? `${candles.length} candles` : "No saved candles"}</span></div></section>
         <aside className="panel min-h-0 p-5"><div className="flex items-center justify-between"><div><p className="metric-label">Strategy</p><h2 className="mt-1 text-sm font-semibold">EMA crossover</h2></div><span className={`rounded-full px-2.5 py-1 text-[11px] font-semibold ${configuration?.place_orders_automatically ? "bg-emerald-50 text-emerald-700 dark:bg-emerald-950 dark:text-emerald-300" : "bg-slate-100 text-slate-500 dark:bg-slate-800 dark:text-slate-300"}`}>{configuration?.place_orders_automatically ? "Auto on" : "Signals only"}</span></div><div className="mt-4 space-y-2 overflow-y-auto">{snapshot.signals.slice(0, 4).map((signal) => <div key={`${signal.symbol}-${signal.timestamp}`} className="rounded-xl border border-slate-100 p-3 dark:border-slate-800"><div className="flex items-center justify-between"><span className="text-sm font-semibold">{signal.symbol}</span><span className="text-xs font-semibold text-blue-600 dark:text-blue-400">{signal.direction}</span></div><p className="mt-1 truncate text-xs text-slate-400">{signal.reason}</p></div>)}{!snapshot.signals.length && <div className="rounded-xl bg-slate-50 p-4 text-sm leading-5 text-slate-400 dark:bg-slate-800/60">No decisions yet. Signals appear here after completed candles are evaluated.</div>}</div></aside>
       </section>
       <section className="mt-4 grid shrink-0 grid-cols-1 gap-4 lg:grid-cols-2"><div className="panel p-4"><div className="flex items-center justify-between"><h2 className="text-sm font-semibold">Positions</h2><span className="text-xs text-slate-400">Broker snapshot</span></div><DataRows rows={snapshot.positions.slice(0, 2)} empty="No open positions" render={(position) => <><span className="font-semibold">{position.symbol}</span><span>{quantity.format(position.quantity)} shares</span><span className={Number(position.unrealized_pnl) >= 0 ? "text-emerald-600" : "text-red-500"}>{money.format(position.unrealized_pnl)}</span></>} /></div><div className="panel p-4"><div className="flex items-center justify-between"><h2 className="text-sm font-semibold">Activity</h2><span className="text-xs text-slate-400">Recent orders</span></div><DataRows rows={snapshot.orders.slice(0, 2)} empty="No orders recorded" render={(order) => <><span className="font-semibold">{order.symbol}</span><span>{String(order.side).toUpperCase()} · {quantity.format(order.quantity)}</span><span className="capitalize text-slate-500">{order.status.replaceAll("_", " ")}</span></>} /></div></section>
