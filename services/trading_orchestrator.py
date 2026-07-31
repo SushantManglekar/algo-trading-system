@@ -68,6 +68,20 @@ class TradingOrchestrator:
         for engine in self._strategy_engines.values():
             await engine.initialize()
 
+    async def reconfigure(
+        self,
+        strategy_engines: Mapping[str, StrategyEngine],
+        risk_engine: RiskEngine,
+        atr_period: int,
+    ) -> None:
+        """Swap validated strategies and risk policy between market events."""
+        resolved_engines = dict(strategy_engines)
+        for engine in resolved_engines.values():
+            await engine.initialize()
+        self._strategy_engines = resolved_engines
+        self._risk_engine = risk_engine
+        self._atr = AtrTracker(atr_period)
+
     async def process_tick(self, tick: MarketTick) -> tuple[bool, str | None, int, int]:
         processing = await self._tick_processor.process(tick)
         if not processing.accepted:

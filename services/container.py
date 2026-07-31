@@ -8,6 +8,13 @@ from analytics.engine import AnalyticsEngine
 from analytics.outcome_store import InMemoryOutcomeStore, OutcomeStore
 from analytics.types import AnalyticsSettings
 from config.settings import AppSettings, ProviderName, StorageBackend
+from control_plane.repository import (
+    InMemoryTradingControlStore,
+    SqlAlchemyTradingControlStore,
+    TradingControlStore,
+)
+from control_plane.service import TradingControlService
+from control_plane.types import RuntimeTradingConfiguration
 from core.metrics import ApiMetrics
 from events.live_hub import LiveEventHub
 from execution.in_memory import InMemoryExecutionAuditStore
@@ -62,6 +69,7 @@ class ApplicationContainer:
     execution_audit_store: ExecutionAuditStore
     trading_orchestrator: TradingOrchestrator
     pipeline_worker: TradingPipelineWorker
+    trading_controls: TradingControlService
     database: Database | None = None
     cache: RedisCache | None = None
     started: bool = False
@@ -70,6 +78,7 @@ class ApplicationContainer:
         if self.cache is not None:
             await self.cache.start()
         await self.provider.connect()
+        await self.trading_controls.start()
         await self.pipeline_worker.start()
         self.started = True
 
@@ -82,12 +91,40 @@ class ApplicationContainer:
             await self.database.dispose()
         self.started = False
 
+    async def apply_trading_configuration(
+        self, configuration: RuntimeTradingConfiguration
+    ) -> None:
+        """Apply one validated operator configuration to live runtime dependencies."""
+        worker_was_running = self.pipeline_worker.is_running
+        if worker_was_running:
+            await self.pipeline_worker.stop()
+        strategy_engines = _build_strategy_engines(configuration)
+        await self.trading_orchestrator.reconfigure(
+            strategy_engines,
+            RiskEngine(configuration.risk_policy),
+            self.settings.atr_period,
+        )
+        self.risk_engine = RiskEngine(configuration.risk_policy)
+        self.execution_service.configure_runtime(
+            place_orders_automatically=configuration.place_orders_automatically,
+            is_paper=configuration.mode.value == "paper",
+        )
+        active_symbols = configuration.symbols if configuration.monitoring_enabled else ()
+        await self.pipeline_worker.reconfigure(active_symbols)
+        if worker_was_running and active_symbols:
+            await self.pipeline_worker.start()
+
     async def readiness(self) -> dict[str, bool]:
         """Report whether every enabled runtime dependency can serve production traffic."""
+        configuration = await self.trading_controls.get()
         dependencies = {
             "application": self.started,
             "market_data": self.provider.is_connected,
-            "pipeline": not self.settings.symbols or self.pipeline_worker.is_running,
+            "pipeline": (
+                not configuration.monitoring_enabled
+                or not configuration.symbols
+                or self.pipeline_worker.is_running
+            ),
             "database": self.database is None or await self.database.ping(),
             "redis": self.cache is None or await self.cache.ping(),
         }
@@ -108,12 +145,14 @@ def build_container(settings: AppSettings | None = None) -> ApplicationContainer
         signal_store: SignalStore = SqlAlchemySignalStore(database.sessions)
         outcome_store: OutcomeStore = SqlAlchemyOutcomeStore(database.sessions)
         execution_audit_store: ExecutionAuditStore = SqlAlchemyExecutionRepository(database.sessions)
+        control_store: TradingControlStore = SqlAlchemyTradingControlStore(database.sessions)
     else:
         tick_store = InMemoryTickStore(resolved_settings.tick_buffer_per_symbol)
         candle_store = InMemoryCandleStore(resolved_settings.candle_buffer_per_series)
         signal_store = InMemorySignalStore()
         outcome_store = InMemoryOutcomeStore()
         execution_audit_store = InMemoryExecutionAuditStore()
+        control_store = InMemoryTradingControlStore()
     provider: MarketDataProvider
     if resolved_settings.market_data_provider is ProviderName.ALPACA:
         provider = AlpacaMarketDataProvider(resolved_settings)
@@ -124,23 +163,8 @@ def build_container(settings: AppSettings | None = None) -> ApplicationContainer
         broker = AlpacaExecutionProvider(resolved_settings)
     else:
         broker = MockBrokerageProvider()
-    strategy_engines: dict[str, StrategyEngine] = {}
-    for symbol in resolved_settings.symbols:
-        registry = StrategyRegistry()
-        registry.register(
-            EmaCrossoverStrategy(
-                EmaCrossoverSettings(
-                    symbol=symbol,
-                    interval=resolved_settings.strategy_interval,
-                    fast_period=resolved_settings.ema_fast_period,
-                    slow_period=resolved_settings.ema_slow_period,
-                    base_confidence=resolved_settings.ema_base_confidence,
-                    confidence_sensitivity=resolved_settings.ema_confidence_sensitivity,
-                    max_confidence=resolved_settings.ema_max_confidence,
-                )
-            )
-        )
-        strategy_engines[symbol] = StrategyEngine(registry)
+    default_configuration = TradingControlService.from_settings(resolved_settings)
+    strategy_engines = _build_strategy_engines(default_configuration)
     risk_engine = RiskEngine(resolved_settings.risk_policy())
     execution_service = AutomatedExecutionService(resolved_settings, broker, execution_audit_store)
     live_hub = LiveEventHub()
@@ -157,7 +181,7 @@ def build_container(settings: AppSettings | None = None) -> ApplicationContainer
         resolved_settings.atr_period,
         live_hub,
     )
-    return ApplicationContainer(
+    container = ApplicationContainer(
         settings=resolved_settings,
         provider=provider,
         tick_store=tick_store,
@@ -189,4 +213,35 @@ def build_container(settings: AppSettings | None = None) -> ApplicationContainer
         ),
         database=database,
         cache=cache,
+        trading_controls=None,  # type: ignore[arg-type]
     )
+    container.trading_controls = TradingControlService(
+        control_store,
+        default_configuration,
+        container.apply_trading_configuration,
+    )
+    return container
+
+
+def _build_strategy_engines(
+    configuration: RuntimeTradingConfiguration,
+) -> dict[str, StrategyEngine]:
+    """Create isolated plugin instances for every configured symbol."""
+    engines: dict[str, StrategyEngine] = {}
+    for symbol in configuration.symbols:
+        registry = StrategyRegistry()
+        registry.register(
+            EmaCrossoverStrategy(
+                EmaCrossoverSettings(
+                    symbol=symbol,
+                    interval=configuration.strategy.interval,
+                    fast_period=configuration.strategy.fast_period,
+                    slow_period=configuration.strategy.slow_period,
+                    base_confidence=configuration.strategy.base_confidence,
+                    confidence_sensitivity=configuration.strategy.confidence_sensitivity,
+                    max_confidence=configuration.strategy.max_confidence,
+                )
+            )
+        )
+        engines[symbol] = StrategyEngine(registry)
+    return engines

@@ -16,14 +16,17 @@ router = APIRouter(prefix="/trading", tags=["trading"])
 @router.get("/status")
 async def trading_status(container: ApplicationContainer = Depends(get_container)) -> dict[str, object]:
     """Expose effective trading mode and worker state without exposing credentials."""
+    configuration = await container.trading_controls.get()
     return {
-        "mode": container.settings.trading_mode,
-        "automation_enabled": container.settings.automation_enabled,
-        "order_submission_enabled": container.settings.order_submission_enabled,
+        "mode": configuration.mode,
+        "automation_enabled": configuration.place_orders_automatically,
+        "order_submission_enabled": configuration.place_orders_automatically,
+        "monitoring_enabled": configuration.monitoring_enabled,
         "market_data_provider": container.provider.name,
         "execution_provider": container.settings.execution_provider,
         "pipeline_running": container.pipeline_worker.is_running,
-        "symbols": container.settings.symbols,
+        "symbols": configuration.symbols,
+        "configuration_version": configuration.version,
     }
 
 

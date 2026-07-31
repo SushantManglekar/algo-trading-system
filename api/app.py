@@ -5,12 +5,15 @@ from __future__ import annotations
 import logging
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
+from pathlib import Path
 from time import perf_counter
 from uuid import uuid4
 
 from fastapi import FastAPI, Request
+from fastapi.responses import FileResponse
+from fastapi.staticfiles import StaticFiles
 
-from api.routes import live, market, signals, system, trading
+from api.routes import control, live, market, signals, system, trading
 from core.logging import configure_json_logging
 from services.container import ApplicationContainer, build_container
 
@@ -32,6 +35,13 @@ def create_app(container: ApplicationContainer | None = None) -> FastAPI:
 
     app = FastAPI(title=resolved_container.settings.app_name, lifespan=lifespan)
     app.state.container = resolved_container
+    dashboard_directory = Path(__file__).parent / "dashboard"
+    app.mount("/assets", StaticFiles(directory=dashboard_directory), name="dashboard-assets")
+
+    @app.get("/", include_in_schema=False)
+    async def dashboard() -> FileResponse:
+        """Serve the local operator dashboard from the same origin as the API."""
+        return FileResponse(dashboard_directory / "index.html")
 
     @app.middleware("http")
     async def request_correlation(request: Request, call_next: object) -> object:
@@ -56,6 +66,7 @@ def create_app(container: ApplicationContainer | None = None) -> FastAPI:
         return response
 
     app.include_router(system.router)
+    app.include_router(control.router)
     app.include_router(market.router)
     app.include_router(signals.router)
     app.include_router(trading.router)

@@ -1,6 +1,7 @@
 """Persistence models."""
 
 from models.candle import CandleRecord
+from models.control_plane import TradingControlAuditRecord, TradingControlRecord
 from models.execution import AccountSnapshotRecord, ExecutionOrderRecord, PositionSnapshotRecord
 from models.outcome import SignalOutcomeRecord
 from models.signal import SignalRecord
@@ -14,4 +15,6 @@ __all__ = [
     "SignalOutcomeRecord",
     "SignalRecord",
     "TickRecord",
+    "TradingControlAuditRecord",
+    "TradingControlRecord",
 ]

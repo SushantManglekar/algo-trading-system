@@ -102,6 +102,8 @@ class AppSettings(BaseSettings):
     live_trading_confirmation: SecretStr | None = None
     alpaca_api_key: SecretStr | None = None
     alpaca_api_secret: SecretStr | None = None
+    alpaca_live_api_key: SecretStr | None = None
+    alpaca_live_api_secret: SecretStr | None = None
     storage_backend: StorageBackend = StorageBackend.MEMORY
     database_url: str = "postgresql+asyncpg://trading:trading@localhost:5432/trading"
     redis_url: str = "redis://localhost:6379/0"
@@ -121,6 +123,12 @@ class AppSettings(BaseSettings):
             )
             if confirmation != "ENABLE_LIVE_TRADING":
                 raise ValueError("live order submission requires explicit confirmation")
+        if (
+            self.trading_mode is TradingMode.LIVE
+            and self.execution_provider is ProviderName.ALPACA
+            and not self._has_alpaca_live_credentials()
+        ):
+            raise ValueError("live Alpaca execution requires a separate non-empty live API key and secret")
         if self.automation_enabled and not self.order_submission_enabled:
             raise ValueError("automation requires order_submission_enabled=true")
         if self.automation_enabled:
@@ -144,6 +152,18 @@ class AppSettings(BaseSettings):
             and self.alpaca_api_key.get_secret_value().strip()
             and self.alpaca_api_secret is not None
             and self.alpaca_api_secret.get_secret_value().strip()
+        )
+
+    def has_alpaca_live_credentials(self) -> bool:
+        """Return whether an independent Alpaca live credential pair is configured."""
+        return self._has_alpaca_live_credentials()
+
+    def _has_alpaca_live_credentials(self) -> bool:
+        return bool(
+            self.alpaca_live_api_key is not None
+            and self.alpaca_live_api_key.get_secret_value().strip()
+            and self.alpaca_live_api_secret is not None
+            and self.alpaca_live_api_secret.get_secret_value().strip()
         )
 
     def risk_policy(self) -> RiskPolicy:

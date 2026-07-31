@@ -31,19 +31,35 @@ class AlpacaExecutionProvider(ExecutionProvider):
             raise ValueError("Alpaca adapter requires execution_provider=alpaca")
         if settings.alpaca_api_key is None or settings.alpaca_api_secret is None:
             raise ValueError("Alpaca API credentials are required")
-        self._settings = settings
-        self._client = TradingClient(
-            settings.alpaca_api_key.get_secret_value(),
-            settings.alpaca_api_secret.get_secret_value(),
-            paper=settings.trading_mode is TradingMode.PAPER,
+        self._paper_api_key = settings.alpaca_api_key.get_secret_value()
+        self._paper_api_secret = settings.alpaca_api_secret.get_secret_value()
+        self._live_api_key = (
+            settings.alpaca_live_api_key.get_secret_value()
+            if settings.alpaca_live_api_key is not None
+            else None
         )
+        self._live_api_secret = (
+            settings.alpaca_live_api_secret.get_secret_value()
+            if settings.alpaca_live_api_secret is not None
+            else None
+        )
+        self._is_paper = settings.trading_mode is TradingMode.PAPER
+        self._order_submission_enabled = settings.order_submission_enabled
+        self._client = self._build_client()
 
     @property
     def is_paper(self) -> bool:
-        return self._settings.trading_mode is TradingMode.PAPER
+        return self._is_paper
+
+    def configure_runtime(self, *, is_paper: bool, order_submission_enabled: bool) -> None:
+        if not is_paper and (not self._live_api_key or not self._live_api_secret):
+            raise ValueError("live Alpaca execution requires separate live API credentials")
+        self._is_paper = is_paper
+        self._order_submission_enabled = order_submission_enabled
+        self._client = self._build_client()
 
     async def submit_market_order(self, request: OrderRequest) -> ExecutionOrder:
-        if not self._settings.order_submission_enabled:
+        if not self._order_submission_enabled:
             raise PermissionError("order submission is disabled by configuration")
         order = MarketOrderRequest(
             symbol=request.symbol,
@@ -84,7 +100,7 @@ class AlpacaExecutionProvider(ExecutionProvider):
         )
 
     async def close_position(self, symbol: str, client_order_id: str) -> ExecutionOrder:
-        if not self._settings.order_submission_enabled:
+        if not self._order_submission_enabled:
             raise PermissionError("order submission is disabled by configuration")
         positions = await self.list_positions()
         position = next((item for item in positions if item.symbol == symbol.upper()), None)
@@ -119,3 +135,10 @@ class AlpacaExecutionProvider(ExecutionProvider):
                 else None
             ),
         )
+
+    def _build_client(self) -> TradingClient:
+        api_key = self._paper_api_key if self._is_paper else self._live_api_key
+        api_secret = self._paper_api_secret if self._is_paper else self._live_api_secret
+        if not api_key or not api_secret:
+            raise ValueError("live Alpaca execution requires separate live API credentials")
+        return TradingClient(api_key, api_secret, paper=self._is_paper)

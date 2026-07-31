@@ -1,0 +1,93 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="theme-color" content="#0b1220">
+    <title>Trading Control Center</title>
+    <link rel="stylesheet" href="/assets/styles.css">
+  </head>
+  <body>
+    <main class="shell">
+      <header class="topbar">
+        <div>
+          <p class="eyebrow">INTRADAY SIGNAL PLATFORM</p>
+          <h1>Trading control center</h1>
+        </div>
+        <div class="top-actions">
+          <span id="mode-badge" class="badge badge-paper">PAPER</span>
+          <span id="system-badge" class="system-state">Connecting</span>
+          <button id="refresh-button" class="button secondary" type="button">Refresh</button>
+        </div>
+      </header>
+
+      <section class="metrics" aria-label="Account overview">
+        <article class="metric"><span>Equity</span><strong id="equity">--</strong></article>
+        <article class="metric"><span>Cash</span><strong id="cash">--</strong></article>
+        <article class="metric"><span>Buying power</span><strong id="buying-power">--</strong></article>
+        <article class="metric"><span>Daily P/L</span><strong id="daily-pnl">--</strong></article>
+        <article class="metric"><span>Open positions</span><strong id="position-count">--</strong></article>
+      </section>
+
+      <section class="status-strip" aria-label="Trading safeguards">
+        <div><span class="dot" id="monitoring-dot"></span><span id="monitoring-status">Monitoring status</span></div>
+        <div><span class="dot" id="automation-dot"></span><span id="automation-status">Automatic orders status</span></div>
+        <div id="provider-status">Market data: --</div>
+        <div id="worker-status">Worker: --</div>
+      </section>
+
+      <section class="dashboard-grid">
+        <aside class="panel watchlist-panel">
+          <div class="panel-heading"><h2>Watchlist</h2><span id="watchlist-count" class="muted">0 symbols</span></div>
+          <div id="watchlist" class="watchlist" aria-label="Configured watchlist"></div>
+          <p class="panel-note">Select a symbol to view its historical chart and current signals.</p>
+        </aside>
+
+        <section class="panel chart-panel">
+          <div class="panel-heading">
+            <div><p class="eyebrow" id="chart-subtitle">HISTORICAL PRICE</p><h2 id="chart-symbol">Select a symbol</h2></div>
+            <span id="chart-interval" class="muted">--</span>
+          </div>
+          <canvas id="price-chart" role="img" aria-label="Historical price chart"></canvas>
+          <p id="chart-empty" class="chart-empty">Select a watchlist symbol to load its chart.</p>
+        </section>
+
+        <aside class="panel signal-panel">
+          <div class="panel-heading"><h2>Latest decisions</h2><span id="signal-count" class="muted">0 total</span></div>
+          <div id="signals" class="signal-list"></div>
+          <p class="panel-note">Signals remain proposals unless automatic orders are explicitly enabled.</p>
+        </aside>
+      </section>
+
+      <section class="lower-grid">
+        <section class="panel table-panel">
+          <div class="panel-heading"><h2>Positions</h2><span class="muted">Broker snapshot</span></div>
+          <div class="table-wrap"><table><thead><tr><th>Symbol</th><th>Quantity</th><th>Market value</th><th>Unrealized P/L</th></tr></thead><tbody id="positions"></tbody></table></div>
+        </section>
+        <section class="panel table-panel">
+          <div class="panel-heading"><h2>Recent orders</h2><span class="muted">Durable audit</span></div>
+          <div class="table-wrap"><table><thead><tr><th>Symbol</th><th>Side</th><th>Quantity</th><th>Status</th></tr></thead><tbody id="orders"></tbody></table></div>
+        </section>
+      </section>
+
+      <section class="panel control-panel">
+        <div class="panel-heading"><div><p class="eyebrow">CONTROL PLANE</p><h2>Trading configuration</h2></div><span id="config-version" class="muted">Version --</span></div>
+        <form id="control-form" class="control-form">
+          <label>Trading mode<select id="mode" name="mode"><option value="paper">Paper</option><option value="live">Live</option></select></label>
+          <label class="switch-label"><span>Place orders automatically</span><input id="automatic-orders" name="automatic-orders" type="checkbox"><span class="switch" aria-hidden="true"></span></label>
+          <label class="switch-label"><span>Monitor selected symbols</span><input id="monitoring-enabled" name="monitoring-enabled" type="checkbox"><span class="switch" aria-hidden="true"></span></label>
+          <label class="wide">Symbols<input id="symbols" name="symbols" placeholder="AAPL, MSFT, NVDA" autocomplete="off"></label>
+          <label>Strategy<select id="strategy-name" name="strategy-name" disabled><option value="ema_crossover">EMA Crossover</option></select></label>
+          <label>Interval<select id="interval" name="interval"><option value="1m">1 minute</option><option value="5m">5 minutes</option><option value="15m">15 minutes</option><option value="1h">1 hour</option><option value="1d">1 day</option></select></label>
+          <label>Fast EMA<input id="fast-period" type="number" min="2" max="500"></label>
+          <label>Slow EMA<input id="slow-period" type="number" min="3" max="1000"></label>
+          <label>Risk per trade<input id="risk-per-trade" type="number" min="0.001" max="1" step="0.001"></label>
+          <label>Daily loss limit<input id="daily-loss" type="number" min="0.001" max="1" step="0.001"></label>
+          <label>Maximum positions<input id="max-positions" type="number" min="1" max="500"></label>
+          <div class="form-actions"><p id="form-message" role="status"></p><button class="button primary" type="submit">Save and apply configuration</button></div>
+        </form>
+      </section>
+    </main>
+    <script src="/assets/app.js" defer></script>
+  </body>
+</html>

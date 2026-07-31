@@ -63,6 +63,17 @@ def test_alpaca_selection_requires_credentials_and_symbols_are_validated() -> No
         AppSettings(_env_file=None, symbols="not a symbol")
 
 
+def test_live_alpaca_execution_requires_a_separate_credential_pair() -> None:
+    with pytest.raises(ValidationError, match="separate non-empty live API key"):
+        AppSettings(
+            _env_file=None,
+            execution_provider=ProviderName.ALPACA,
+            alpaca_api_key="paper-key",
+            alpaca_api_secret="paper-secret",
+            trading_mode=TradingMode.LIVE,
+        )
+
+
 def test_environment_template_covers_every_operational_setting() -> None:
     template = Path(__file__).parents[2] / ".env.example"
     configured_names = {

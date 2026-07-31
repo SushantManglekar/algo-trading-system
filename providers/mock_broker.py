@@ -17,11 +17,21 @@ from providers.execution import (
 class MockBrokerageProvider(ExecutionProvider):
     """Acknowledges configured orders without external side effects or hidden fills."""
 
+    def __init__(self) -> None:
+        self._is_paper = True
+        self._order_submission_enabled = False
+
     @property
     def is_paper(self) -> bool:
-        return True
+        return self._is_paper
+
+    def configure_runtime(self, *, is_paper: bool, order_submission_enabled: bool) -> None:
+        self._is_paper = is_paper
+        self._order_submission_enabled = order_submission_enabled
 
     async def submit_market_order(self, request: OrderRequest) -> ExecutionOrder:
+        if not self._order_submission_enabled:
+            raise PermissionError("order submission is disabled by configuration")
         return ExecutionOrder(
             client_order_id=request.client_order_id,
             broker_order_id=f"mock-{request.client_order_id}",

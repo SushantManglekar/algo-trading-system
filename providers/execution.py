@@ -108,6 +108,10 @@ class ExecutionProvider(ABC):
         """Return whether this provider is attached to a paper account."""
 
     @abstractmethod
+    def configure_runtime(self, *, is_paper: bool, order_submission_enabled: bool) -> None:
+        """Apply validated runtime controls without exposing credentials to callers."""
+
+    @abstractmethod
     async def submit_market_order(self, request: OrderRequest) -> ExecutionOrder:
         """Submit an approved, idempotent market order and return broker state."""
 

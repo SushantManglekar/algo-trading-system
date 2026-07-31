@@ -4,11 +4,11 @@
 
 ## Status
 
-**Paper-trading backend: ready for controlled operation.**
+**Paper-trading control center: ready for controlled operation.**
 
 The application can stream Alpaca market data, build candles, run the EMA crossover strategy, apply portfolio-aware risk controls, record every decision, and submit paper orders only after explicit configuration gates are enabled. It is intentionally **not yet approved for unattended live trading**; the remaining live-readiness work is documented below.
 
-There is no browser dashboard yet. The current operator surface is the REST API, WebSockets, Prometheus metrics, Docker health probes, and the Alpaca paper dashboard.
+The application now includes a same-origin local dashboard for the watchlist, historical prices, signals, account/position snapshots, execution audit, and safe runtime controls. REST, WebSockets, Prometheus metrics, Docker health probes, and the Alpaca paper dashboard remain available for operational use.
 
 ## What the application does today
 
@@ -19,6 +19,8 @@ There is no browser dashboard yet. The current operator surface is the REST API,
 | Strategy | Runs plugin-style strategies. EMA crossover is the first production strategy and evaluates completed candles only. |
 | Risk | Sizes entries from ATR, prevents averaging down, limits loss streaks, daily loss, gross exposure, open positions, and cash-reserve breaches. |
 | Execution | Uses an idempotent, provider-neutral execution boundary with a guarded Alpaca paper/live adapter. Automated entry and exit logic is available but disabled by default. |
+| Control plane | Persists versioned watchlist, EMA, risk, monitoring, mode, and automatic-order choices; updates are audited and protected by optimistic concurrency. |
+| Dashboard | Serves a responsive local browser view at `/` without a separate frontend service or build tool. |
 | Storage | PostgreSQL is the durable record for market data, signals, outcomes, account/position snapshots, and execution audit records. Redis caches reconstructible latest values only. |
 | Observability | REST, WebSockets, request/correlation IDs, structured logs, Prometheus metrics, liveness, and dependency readiness checks. |
 | Deployment | Docker Compose runs API + Redis and connects to an externally managed PostgreSQL instance. |
@@ -38,7 +40,7 @@ flowchart LR
     Risk -->|rejected| Events["Signal history and WebSocket event"]
     Broker --> Portfolio["Account, positions, orders\nPostgreSQL snapshots"]
     Pipeline --> Events
-    Events --> API["REST, WebSocket, dashboard-ready APIs"]
+    Events --> API["REST, WebSocket, and dashboard APIs"]
 ```
 
 The strategy never evaluates an in-progress candle. The tick processor rejects timestamp-regressing events, and the order path is blocked unless every safety gate is satisfied.
@@ -55,7 +57,7 @@ flowchart TB
     end
 
     subgraph Application["Intraday Signal Platform"]
-        API["FastAPI\nREST, WebSockets, OpenAPI"]
+        API["FastAPI\nDashboard, REST, WebSockets, OpenAPI"]
         Container["Application container\nvalidated runtime configuration"]
         Worker["Background worker\nparallel symbol processing"]
         Domain["Candles, strategies, risk, analytics"]
@@ -146,6 +148,7 @@ Invoke-RestMethod http://localhost:8000/trading/account
 Open these URLs after startup:
 
 - Interactive API: http://localhost:8000/docs
+- Trading dashboard: http://localhost:8000/
 - Health: http://localhost:8000/health
 - Readiness: http://localhost:8000/ready
 - Metrics: http://localhost:8000/metrics
@@ -163,6 +166,7 @@ Open these URLs after startup:
 | `POST /analytics/outcomes`, `GET /analytics` | Record closed outcomes and retrieve performance analytics. |
 | `GET /trading/status` | Effective provider, mode, configured symbols, and safety gates. |
 | `GET /trading/account`, `/trading/positions`, `/trading/orders` | Broker account state, current holdings, and durable execution audit history. |
+| `GET/PUT /control`, `GET /control/audit` | Read or safely apply the durable operator configuration and inspect its audit history. |
 | `GET /metrics` | Prometheus metrics. |
 | `GET /health`, `GET /ready` | Liveness and dependency readiness. |
 
@@ -197,6 +201,7 @@ Important values:
 | `TRADING_MARKET_DATA_PROVIDER=alpaca` | Use Alpaca instead of the deterministic mock market-data provider. |
 | `TRADING_EXECUTION_PROVIDER=alpaca` | Use Alpaca account/position/order operations. |
 | `TRADING_ALPACA_DATA_FEED=iex` | Select the available Alpaca equities data feed. |
+| `TRADING_ALPACA_LIVE_API_KEY`, `TRADING_ALPACA_LIVE_API_SECRET` | Separate live pair required before the dashboard can switch the Alpaca execution adapter to live mode. |
 | `TRADING_SYMBOLS=AAPL,MSFT` | Symbols monitored by the background pipeline. |
 | `TRADING_STRATEGY_INTERVAL=1m` | EMA strategy candle interval. |
 | `TRADING_STORAGE_BACKEND=postgres` | Use durable PostgreSQL stores instead of in-memory development stores. |
@@ -207,7 +212,7 @@ Alpaca market data and execution are swappable provider implementations; mock pr
 
 ## What is still required before actual live-market trading
 
-The platform can be configured for live Alpaca order submission today, but enabling it now would be premature. Complete these items first.
+The platform can switch to live mode only after a separate live credential pair and explicit dashboard confirmations are provided, but enabling live orders now would be premature. Complete these items first.
 
 ```mermaid
 flowchart LR
@@ -242,7 +247,7 @@ uv build
 uv run alembic upgrade head --sql
 ```
 
-The automated suite currently covers configuration validation, market-data normalization, candle aggregation/history, provider contracts, EMA strategy behavior, risk controls, analytics, execution guards, durable repositories, REST workflows, WebSockets, request correlation, readiness, and worker processing.
+The automated suite currently covers configuration validation, control-plane confirmations/auditing, dashboard asset delivery, runtime watchlist reconfiguration, market-data normalization, candle aggregation/history, provider contracts, EMA strategy behavior, risk controls, analytics, execution guards, durable repositories, REST workflows, WebSockets, request correlation, readiness, and worker processing.
 
 For the containerized environment:
 

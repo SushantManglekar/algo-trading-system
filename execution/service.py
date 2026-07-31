@@ -47,6 +47,19 @@ class AutomatedExecutionService:
         self._settings = settings
         self._broker = broker
         self._audit_store = audit_store
+        self._place_orders_automatically = settings.automation_enabled
+        self.configure_runtime(
+            place_orders_automatically=settings.automation_enabled,
+            is_paper=settings.trading_mode.value == "paper",
+        )
+
+    def configure_runtime(self, *, place_orders_automatically: bool, is_paper: bool) -> None:
+        """Apply the validated dashboard execution policy to the broker boundary."""
+        self._place_orders_automatically = place_orders_automatically
+        self._broker.configure_runtime(
+            is_paper=is_paper,
+            order_submission_enabled=place_orders_automatically,
+        )
 
     async def risk_context(
         self, *, entry_price: Decimal, atr: Decimal, symbol: str
@@ -74,7 +87,7 @@ class AutomatedExecutionService:
 
     async def execute_entry(self, signal: RiskManagedSignal) -> ExecutionOrder | None:
         """Reserve first, then submit exactly once for an approved directional entry."""
-        if not self._settings.automation_enabled:
+        if not self._place_orders_automatically:
             return None
         request = OrderRequest(
             client_order_id=self._client_order_id(signal.symbol, signal.timestamp, signal.strategy, signal.direction),
@@ -99,7 +112,7 @@ class AutomatedExecutionService:
 
     async def execute_exit(self, intent: StrategySignalIntent) -> ExecutionOrder | None:
         """Close an existing position after an explicit strategy exit; no reverse order is created."""
-        if not self._settings.automation_enabled or intent.direction is not StrategyDirection.EXIT:
+        if not self._place_orders_automatically or intent.direction is not StrategyDirection.EXIT:
             return None
         _, positions = await self.portfolio()
         if not any(position.symbol == intent.symbol for position in positions):

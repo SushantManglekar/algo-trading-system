@@ -8,7 +8,7 @@ from typing import Final
 
 from fastapi import WebSocket
 
-LIVE_TOPICS: Final[frozenset[str]] = frozenset({"ticks", "candles", "signals", "analytics"})
+LIVE_TOPICS: Final[frozenset[str]] = frozenset({"ticks", "candles", "signals", "analytics", "control"})
 
 
 class LiveEventHub:

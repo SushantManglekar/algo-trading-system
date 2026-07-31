@@ -45,6 +45,18 @@ class TradingPipelineWorker:
         ]
         self._producer = asyncio.create_task(self._produce(), name="market-data-producer")
 
+    async def reconfigure(self, symbols: tuple[str, ...]) -> None:
+        """Safely replace the active watchlist while preserving a single upstream stream."""
+        normalized = tuple(dict.fromkeys(symbol.strip().upper() for symbol in symbols if symbol.strip()))
+        if normalized == self._symbols:
+            return
+        was_running = self.is_running
+        if was_running:
+            await self.stop()
+        self._symbols = normalized
+        if was_running:
+            await self.start()
+
     async def stop(self) -> None:
         tasks = [task for task in [self._producer, *self._consumers] if task is not None]
         self._producer = None
