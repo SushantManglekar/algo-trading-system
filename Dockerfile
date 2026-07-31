@@ -1,3 +1,11 @@
+FROM node:22-alpine AS dashboard-build
+
+WORKDIR /dashboard
+COPY frontend/package.json frontend/package-lock.json ./
+RUN npm ci
+COPY frontend ./
+RUN npm run build
+
 FROM python:3.12-slim
 
 ENV PYTHONUNBUFFERED=1 \
@@ -14,6 +22,7 @@ RUN uv sync --frozen --no-dev --no-install-project
 
 COPY . ./
 RUN uv sync --frozen --no-dev
+COPY --from=dashboard-build /api/dashboard ./api/dashboard
 
 EXPOSE 8000
 

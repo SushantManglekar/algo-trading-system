@@ -1,0 +1,15 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  html, body, #root { min-height: 100%; }
+  body { @apply m-0 bg-slate-50 font-sans text-slate-900 antialiased dark:bg-slate-950 dark:text-slate-100; }
+  button, input, select { font: inherit; }
+}
+
+@layer components {
+  .panel { @apply rounded-2xl border border-slate-200/80 bg-white shadow-panel dark:border-slate-800 dark:bg-slate-900; }
+  .metric-label { @apply text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-400 dark:text-slate-500; }
+  .field { @apply mt-2 w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm text-slate-700 outline-none transition focus:border-blue-500 focus:ring-4 focus:ring-blue-100 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100 dark:focus:ring-blue-950; }
+}

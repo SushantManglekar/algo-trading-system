@@ -13,8 +13,8 @@ def test_dashboard_and_control_plane_reconfigure_the_running_application() -> No
     with TestClient(application) as client:
         dashboard = client.get("/")
         assert dashboard.status_code == 200
-        assert "Trading control center" in dashboard.text
-        assert client.get("/assets/app.js").status_code == 200
+        assert 'id="root"' in dashboard.text
+        assert "/assets/" in dashboard.text
 
         current = client.get("/control")
         assert current.status_code == 200
