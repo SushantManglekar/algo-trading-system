@@ -39,14 +39,26 @@ class HistoricalCandleService:
         provider: MarketDataProvider,
         fallback_ticks: Sequence[MarketTick],
     ) -> HistoricalCandleResult:
-        provider_candles = tuple(await provider.get_historical_candles(request))
+        provider_candles = await self.get_provider_candles(request, provider)
         if provider_candles:
-            complete_provider_candles = self._complete_provider_candles(provider_candles, request)
-            if complete_provider_candles:
-                return HistoricalCandleResult(
-                    candles=complete_provider_candles,
-                    source=HistoricalCandleSource.PROVIDER,
-                )
+            return HistoricalCandleResult(
+                candles=provider_candles,
+                source=HistoricalCandleSource.PROVIDER,
+            )
+
+        return await self.aggregate_fallback_ticks(request, fallback_ticks)
+
+    async def get_provider_candles(
+        self, request: HistoricalCandleRequest, provider: MarketDataProvider
+    ) -> tuple[Candle, ...]:
+        """Fetch and validate provider history without forcing a database tick scan."""
+        provider_candles = tuple(await provider.get_historical_candles(request))
+        return self._complete_provider_candles(provider_candles, request) if provider_candles else ()
+
+    async def aggregate_fallback_ticks(
+        self, request: HistoricalCandleRequest, fallback_ticks: Sequence[MarketTick]
+    ) -> HistoricalCandleResult:
+        """Build completed bars from locally persisted ticks only when provider history is empty."""
 
         engine = CandleEngine(
             CandleEngineSettings(intervals=(request.interval,)), self._calendar

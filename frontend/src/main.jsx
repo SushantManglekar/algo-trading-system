@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
 import "./index.css";
 
@@ -35,6 +35,14 @@ function Sparkline({ positive = true }) {
 const PLOT_LEFT = 8;
 const PLOT_WIDTH = 272;
 const VIEW_WIDTH = 340;
+const CHART_RANGE_DAYS = { "1D": 1, "1W": 7, "1M": 30, "1Y": 365, MAX: 3650 };
+const CHART_INTERVALS = { "1D": "1m", "1W": "5m", "1M": "30m", "1Y": "1d", MAX: "1d" };
+
+function sampleCandles(candles, maximum = 160) {
+  if (candles.length <= maximum) return candles;
+  const step = (candles.length - 1) / (maximum - 1);
+  return Array.from({ length: maximum }, (_, index) => candles[Math.round(index * step)]);
+}
 
 function smoothPath(points) {
   if (points.length < 2) return "";
@@ -52,8 +60,10 @@ function smoothPath(points) {
 }
 
 function PriceChart({ candles }) {
-  const data = candles.slice(-50);
+  const data = useMemo(() => sampleCandles(candles), [candles]);
   const [hoveredIndex, setHoveredIndex] = useState(null);
+  const hoverFrame = useRef(null);
+  const hoverIndex = useRef(null);
   const chart = useMemo(() => {
     if (!data.length) return { points: [], low: 0, high: 0, latest: null, upward: true };
     const values = data.flatMap((item) => [Number(item.high), Number(item.low)]);
@@ -63,29 +73,42 @@ function PriceChart({ candles }) {
       y: 110 - ((Number(item.close) - low) / range) * 92,
     })) };
   }, [data]);
+  const line = useMemo(() => smoothPath(chart.points), [chart.points]);
+  const area = useMemo(() => `${line} L ${PLOT_LEFT + PLOT_WIDTH} 112 L ${PLOT_LEFT} 112 Z`, [line]);
   if (!chart.points.length) return <div className="grid h-full place-items-center text-sm text-slate-400">Historical candles will appear here.</div>;
   const hovered = hoveredIndex === null ? null : data[hoveredIndex];
   const hoveredPoint = hoveredIndex === null ? null : chart.points[hoveredIndex];
   const color = chart.upward ? "#16a34a" : "#ef4444";
   const gradientId = chart.upward ? "price-area-up" : "price-area-down";
-  const line = smoothPath(chart.points);
-  const area = `${line} L ${PLOT_LEFT + PLOT_WIDTH} 112 L ${PLOT_LEFT} 112 Z`;
   const labels = [chart.high, chart.low + (chart.high - chart.low) / 2, chart.low];
   const selectPoint = (event) => {
     const bounds = event.currentTarget.getBoundingClientRect();
     const viewX = ((event.clientX - bounds.left) / bounds.width) * VIEW_WIDTH;
     const clampedX = Math.max(PLOT_LEFT, Math.min(PLOT_LEFT + PLOT_WIDTH, viewX));
-    setHoveredIndex(Math.round(((clampedX - PLOT_LEFT) / PLOT_WIDTH) * (data.length - 1)));
+    const nextIndex = Math.round(((clampedX - PLOT_LEFT) / PLOT_WIDTH) * (data.length - 1));
+    if (nextIndex === hoverIndex.current) return;
+    hoverIndex.current = nextIndex;
+    if (hoverFrame.current !== null) return;
+    hoverFrame.current = requestAnimationFrame(() => {
+      hoverFrame.current = null;
+      setHoveredIndex(hoverIndex.current);
+    });
   };
-  return <svg className="h-full w-full cursor-crosshair" viewBox="0 0 340 126" preserveAspectRatio="none" role="img" aria-label="Interactive historical closing-price chart with price scale" onMouseMove={selectPoint} onMouseLeave={() => setHoveredIndex(null)}>
+  const clearHover = () => {
+    hoverIndex.current = null;
+    if (hoverFrame.current !== null) cancelAnimationFrame(hoverFrame.current);
+    hoverFrame.current = null;
+    setHoveredIndex(null);
+  };
+  return <svg className="h-full w-full cursor-crosshair touch-none" viewBox="0 0 340 126" preserveAspectRatio="none" role="img" aria-label="Interactive historical closing-price chart with price scale" onPointerMove={selectPoint} onPointerLeave={clearHover}>
     <defs>
       <linearGradient id={gradientId} x1="0" x2="0" y1="0" y2="1"><stop offset="0%" stopColor={color} stopOpacity="0.28" /><stop offset="100%" stopColor={color} stopOpacity="0" /></linearGradient>
-      <filter id="trend-glow" x="-20%" y="-30%" width="140%" height="160%"><feGaussianBlur stdDeviation="3" /></filter>
+      <filter id="trend-glow" x="-20%" y="-30%" width="140%" height="160%"><feGaussianBlur stdDeviation="2" /></filter>
     </defs>
     {[18, 64, 110].map((y) => <line key={y} x1="0" y1={y} x2="284" y2={y} stroke="currentColor" strokeOpacity="0.08" />)}
-    <path d={area} fill={`url(#${gradientId})`} style={{ transition: "d 280ms ease-out" }} />
-    <path d={line} fill="none" stroke={color} strokeOpacity="0.28" strokeWidth="5" strokeLinecap="round" strokeLinejoin="round" filter="url(#trend-glow)" style={{ transition: "d 280ms ease-out" }} />
-    <path d={line} fill="none" stroke={color} strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" style={{ transition: "d 280ms ease-out" }} />
+    <path d={area} fill={`url(#${gradientId})`} />
+    <path d={line} fill="none" stroke={color} strokeOpacity="0.22" strokeWidth="4" strokeLinecap="round" strokeLinejoin="round" filter="url(#trend-glow)" />
+    <path d={line} fill="none" stroke={color} strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
     <circle cx={chart.points.at(-1).x} cy={chart.points.at(-1).y} r="4" fill={color} stroke="white" strokeWidth="2" />
     {labels.map((price, index) => <text key={price} x="292" y={22 + index * 46} fill="currentColor" fillOpacity="0.5" fontSize="9">${price.toFixed(2)}</text>)}
     {hoveredPoint && <g pointerEvents="none"><line x1={hoveredPoint.x} y1="10" x2={hoveredPoint.x} y2="112" stroke={color} strokeOpacity="0.45" strokeDasharray="3 3" /><line x1="0" y1={hoveredPoint.y} x2="284" y2={hoveredPoint.y} stroke={color} strokeOpacity="0.2" strokeDasharray="3 3" /><circle cx={hoveredPoint.x} cy={hoveredPoint.y} r="4" fill="white" stroke={color} strokeWidth="2" /><g transform={`translate(${Math.min(188, Math.max(10, hoveredPoint.x - 40))}, 14)`}><rect width="92" height="35" rx="4" fill="#0f172a" fillOpacity="0.94" /><text x="6" y="12" fill="white" fontSize="8" fontWeight="700">${Number(hovered.close).toFixed(2)}</text><text x="6" y="24" fill="#cbd5e1" fontSize="6.5">O ${Number(hovered.open).toFixed(2)} · H ${Number(hovered.high).toFixed(2)}</text><text x="6" y="31" fill="#cbd5e1" fontSize="6.5">L ${Number(hovered.low).toFixed(2)} · {new Date(hovered.start_at).toLocaleDateString("en-US", { month: "short", day: "numeric" })}</text></g></g>}
@@ -94,6 +117,17 @@ function PriceChart({ candles }) {
 
 function OhlcValue({ label, value }) {
   return <span className="whitespace-nowrap text-[11px] text-slate-400">{label} <b className="ml-1 font-semibold text-slate-700 dark:text-slate-200">${value.toFixed(2)}</b></span>;
+}
+
+function Watchlist({ symbols, selectedSymbol, onSelect, onAdd, monitoringEnabled, pipelineRunning }) {
+  const [symbol, setSymbol] = useState("");
+  const submit = async (event) => {
+    event.preventDefault();
+    const candidate = symbol.trim().toUpperCase();
+    if (!candidate) return;
+    if (await onAdd(candidate)) setSymbol("");
+  };
+  return <aside className="panel hidden min-h-0 flex-col p-4 lg:flex"><div className="flex items-center justify-between"><h2 className="text-sm font-semibold">Watchlist</h2><span className="text-xs text-slate-400">{symbols.length}</span></div><form onSubmit={submit} className="mt-3 flex gap-2"><input value={symbol} onChange={(event) => setSymbol(event.target.value.toUpperCase())} className="min-w-0 flex-1 rounded-lg border border-slate-200 bg-slate-50 px-2.5 py-2 text-xs font-medium uppercase outline-none transition placeholder:normal-case focus:border-blue-500 focus:ring-2 focus:ring-blue-100 dark:border-slate-700 dark:bg-slate-950 dark:focus:ring-blue-950" placeholder="Add ticker" aria-label="Add stock ticker" /><button className="rounded-lg bg-blue-600 px-3 text-xs font-semibold text-white transition hover:bg-blue-700" type="submit">Add</button></form><div className="mt-3 space-y-1 overflow-y-auto">{symbols.map((ticker) => <button key={ticker} onClick={() => onSelect(ticker)} className={`flex w-full items-center justify-between rounded-xl px-3 py-3 text-left text-sm font-medium transition ${ticker === selectedSymbol ? "bg-blue-600 text-white shadow-md shadow-blue-600/20" : "text-slate-600 hover:bg-slate-50 dark:text-slate-300 dark:hover:bg-slate-800"}`}><span>{ticker}</span><span className={`h-1.5 w-1.5 rounded-full ${ticker === selectedSymbol ? "bg-white" : "bg-blue-500"}`} /></button>)}{!symbols.length && <p className="px-1 py-3 text-xs leading-5 text-slate-400">Type a US ticker above to start a watchlist.</p>}</div><div className="mt-auto rounded-xl bg-blue-50 p-3 dark:bg-blue-950/40"><p className="text-xs font-semibold text-blue-700 dark:text-blue-300">{monitoringEnabled ? "Monitoring active" : "Monitoring paused"}</p><p className="mt-1 text-[11px] leading-4 text-blue-600/80 dark:text-blue-300/70">{pipelineRunning ? "Live worker connected" : "Worker waiting"}</p></div></aside>;
 }
 
 function SettingsDrawer({ configuration, onClose, onSave, error }) {
@@ -133,9 +167,14 @@ function App() {
   const [candles, setCandles] = useState([]);
   const [chartRange, setChartRange] = useState("1W");
   const [chartLive, setChartLive] = useState(false);
+  const [chartLoading, setChartLoading] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [dark, setDark] = useState(() => localStorage.getItem("dashboard-theme") === "dark");
   const [error, setError] = useState("");
+  const chartCache = useRef(new Map());
+  const pendingLiveCandle = useRef(null);
+  const liveUpdateFrame = useRef(null);
+  const chartInterval = CHART_INTERVALS[chartRange];
 
   const refresh = async () => {
     try {
@@ -147,11 +186,19 @@ function App() {
   useEffect(() => { refresh(); const timer = window.setInterval(refresh, 30000); return () => window.clearInterval(timer); }, []);
   useEffect(() => { document.documentElement.classList.toggle("dark", dark); localStorage.setItem("dashboard-theme", dark ? "dark" : "light"); }, [dark]);
   useEffect(() => {
-    if (!selectedSymbol || !configuration) { setCandles([]); return; }
-    const days = { "1D": 1, "1W": 7, "1M": 30, "1Y": 365, MAX: 3650 };
-    const end = new Date(); const start = new Date(end.getTime() - days[chartRange] * 86_400_000);
-    request(`/market/candles/${selectedSymbol}?interval=${configuration.strategy.interval}&start_at=${encodeURIComponent(start.toISOString())}&end_at=${encodeURIComponent(end.toISOString())}`).then(setCandles).catch(() => setCandles([]));
-  }, [selectedSymbol, configuration?.strategy?.interval, chartRange]);
+    if (!selectedSymbol || !configuration) { setCandles([]); setChartLoading(false); return undefined; }
+    const end = new Date(); const start = new Date(end.getTime() - CHART_RANGE_DAYS[chartRange] * 86_400_000);
+    const cacheKey = `${selectedSymbol}:${chartInterval}:${chartRange}`;
+    const cached = chartCache.current.get(cacheKey);
+    if (cached) setCandles(cached);
+    setChartLoading(!cached);
+    const controller = new AbortController();
+    request(`/market/candles/${selectedSymbol}?interval=${chartInterval}&start_at=${encodeURIComponent(start.toISOString())}&end_at=${encodeURIComponent(end.toISOString())}`, { signal: controller.signal })
+      .then((result) => { if (!controller.signal.aborted) { chartCache.current.set(cacheKey, result); setCandles(result); } })
+      .catch((reason) => { if (reason.name !== "AbortError" && !cached) setCandles([]); })
+      .finally(() => { if (!controller.signal.aborted) setChartLoading(false); });
+    return () => controller.abort();
+  }, [selectedSymbol, chartInterval, chartRange]);
   useEffect(() => {
     if (!selectedSymbol || !configuration) { setChartLive(false); return undefined; }
     const scheme = window.location.protocol === "https:" ? "wss" : "ws";
@@ -163,20 +210,45 @@ function App() {
       try {
         const message = JSON.parse(data);
         const candle = message.data;
-        if (!candle || candle.symbol !== selectedSymbol || candle.interval !== configuration.strategy.interval) return;
+        if (!candle || candle.symbol !== selectedSymbol || candle.interval !== chartInterval) return;
         if (message.event !== "candle_updated" && message.event !== "candle_completed") return;
-        setCandles((existing) => {
-          const index = existing.findIndex((item) => item.start_at === candle.start_at && item.interval === candle.interval);
-          const next = index === -1 ? [...existing, candle] : existing.map((item, itemIndex) => itemIndex === index ? candle : item);
-          return next.sort((left, right) => new Date(left.start_at) - new Date(right.start_at));
+        pendingLiveCandle.current = candle;
+        if (liveUpdateFrame.current !== null) return;
+        liveUpdateFrame.current = requestAnimationFrame(() => {
+          liveUpdateFrame.current = null;
+          const nextCandle = pendingLiveCandle.current;
+          pendingLiveCandle.current = null;
+          if (!nextCandle) return;
+          setCandles((existing) => {
+            const index = existing.findIndex((item) => item.start_at === nextCandle.start_at && item.interval === nextCandle.interval);
+            if (index === -1) return [...existing, nextCandle];
+            const next = [...existing]; next[index] = nextCandle;
+            return next;
+          });
         });
       } catch { setChartLive(false); }
     };
-    return () => socket.close();
-  }, [selectedSymbol, configuration?.strategy?.interval]);
-  const save = async (payload) => {
-    try { const next = await request("/control", { method: "PUT", body: JSON.stringify(payload) }); setConfiguration(next); setSelectedSymbol(next.symbols[0] || null); setSettingsOpen(false); await refresh(); }
-    catch (reason) { setError(reason.message); }
+    return () => { socket.close(); if (liveUpdateFrame.current !== null) cancelAnimationFrame(liveUpdateFrame.current); };
+  }, [selectedSymbol, chartInterval]);
+  const save = async (payload, preferredSymbol = null, closeSettings = true) => {
+    try {
+      const next = await request("/control", { method: "PUT", body: JSON.stringify(payload) });
+      setConfiguration(next);
+      setSelectedSymbol((current) => preferredSymbol && next.symbols.includes(preferredSymbol) ? preferredSymbol : next.symbols.includes(current) ? current : next.symbols[0] || null);
+      if (closeSettings) setSettingsOpen(false);
+      setError("");
+      await refresh();
+      return true;
+    } catch (reason) {
+      setError(reason.message);
+      return false;
+    }
+  };
+  const addToWatchlist = async (symbol) => {
+    if (!configuration) { setError("The control configuration is still loading. Please try again."); return false; }
+    if (!/^[A-Z][A-Z0-9.\-]{0,9}$/.test(symbol)) { setError("Enter a valid US stock ticker, for example AAPL or MSFT."); return false; }
+    if (configuration.symbols.includes(symbol)) { setSelectedSymbol(symbol); setError(""); return true; }
+    return save({ mode: configuration.mode, place_orders_automatically: configuration.place_orders_automatically, monitoring_enabled: configuration.monitoring_enabled, symbols: [...configuration.symbols, symbol], strategy: configuration.strategy, risk_policy: configuration.risk_policy, expected_version: configuration.version }, symbol, false);
   };
   const account = snapshot.account;
   const dailyPnl = account ? Number(account.equity) - Number(account.previous_close_equity || account.equity) : 0;
@@ -193,8 +265,16 @@ function App() {
       {error && <div className="mt-3 shrink-0 rounded-xl bg-red-50 px-4 py-2 text-sm text-red-700 dark:bg-red-950/40 dark:text-red-300">{error}</div>}
       <section className="mt-5 grid shrink-0 grid-cols-2 gap-3 lg:grid-cols-4"><Metric label="Portfolio value" value={account ? money.format(account.equity) : "—"} /><Metric label="Buying power" value={account ? money.format(account.buying_power) : "—"} /><Metric label="Today" value={account ? `${dailyPnl >= 0 ? "+" : ""}${money.format(dailyPnl)}` : "—"} positive={dailyPnl >= 0} /><Metric label="Open positions" value={String(snapshot.positions.length)} /></section>
       <section className="mt-4 grid min-h-0 flex-1 grid-cols-1 gap-4 lg:grid-cols-[210px_minmax(0,1fr)_300px]">
-        <aside className="panel hidden min-h-0 flex-col p-4 lg:flex"><div className="flex items-center justify-between"><h2 className="text-sm font-semibold">Watchlist</h2><span className="text-xs text-slate-400">{configuration?.symbols.length || 0}</span></div><div className="mt-4 space-y-1 overflow-y-auto">{configuration?.symbols.map((symbol) => <button key={symbol} onClick={() => setSelectedSymbol(symbol)} className={`flex w-full items-center justify-between rounded-xl px-3 py-3 text-left text-sm font-medium transition ${symbol === selectedSymbol ? "bg-blue-600 text-white shadow-md shadow-blue-600/20" : "text-slate-600 hover:bg-slate-50 dark:text-slate-300 dark:hover:bg-slate-800"}`}><span>{symbol}</span><span className={`h-1.5 w-1.5 rounded-full ${symbol === selectedSymbol ? "bg-white" : "bg-blue-500"}`} /></button>)}</div><div className="mt-auto rounded-xl bg-blue-50 p-3 dark:bg-blue-950/40"><p className="text-xs font-semibold text-blue-700 dark:text-blue-300">{configuration?.monitoring_enabled ? "Monitoring active" : "Monitoring paused"}</p><p className="mt-1 text-[11px] leading-4 text-blue-600/80 dark:text-blue-300/70">{snapshot.status?.pipeline_running ? "Live worker connected" : "Worker waiting"}</p></div></aside>
-        <section className="panel flex min-h-0 flex-col p-5"><div className="flex items-start justify-between"><div><p className="metric-label">Market overview</p><div className="mt-1 flex items-baseline gap-3"><h2 className="text-2xl font-semibold tracking-tight">{selectedSymbol || "Select a symbol"}</h2>{marketSummary && <><span className="text-lg font-semibold">${marketSummary.close.toFixed(2)}</span><span className={`text-xs font-semibold ${marketSummary.change >= 0 ? "text-emerald-600" : "text-red-500"}`}>{marketSummary.change >= 0 ? "+" : ""}${marketSummary.change.toFixed(2)} ({marketSummary.changePercent.toFixed(2)}%)</span></>}</div></div><div className="rounded-lg bg-slate-50 px-2.5 py-1.5 text-xs font-medium text-slate-500 dark:bg-slate-800 dark:text-slate-300">{configuration?.strategy.interval || "—"}</div></div><div className="mt-3 flex items-center justify-between gap-3"><div className="flex gap-3 overflow-hidden">{marketSummary ? <><OhlcValue label="O" value={marketSummary.open} /><OhlcValue label="H" value={marketSummary.high} /><OhlcValue label="L" value={marketSummary.low} /><OhlcValue label="C" value={marketSummary.close} /></> : <span className="text-xs text-slate-400">OHLC values appear when data is available.</span>}</div><div className="flex shrink-0 rounded-lg bg-slate-50 p-1 dark:bg-slate-800">{["1D", "1W", "1M", "1Y", "MAX"].map((range) => <button key={range} onClick={() => setChartRange(range)} className={`rounded-md px-2 py-1 text-[10px] font-semibold transition ${chartRange === range ? "bg-white text-blue-600 shadow-sm dark:bg-slate-700 dark:text-blue-300" : "text-slate-400 hover:text-slate-700 dark:hover:text-slate-200"}`}>{range}</button>)}</div></div><div className="mt-2 min-h-0 flex-1"><PriceChart candles={candles} /></div><div className="mt-2 flex items-center justify-between border-t border-slate-100 pt-3 text-xs text-slate-400 dark:border-slate-800"><span className="flex items-center gap-1.5"><i className={`h-1.5 w-1.5 rounded-full ${chartLive ? "bg-emerald-500 shadow-[0_0_8px_rgba(34,197,94,.8)]" : "bg-slate-300 dark:bg-slate-700"}`} />{chartLive ? "Live updates" : "Connecting live feed"}</span><span>{candles.length ? `${candles.length} candles` : "No saved candles"}</span></div></section>
+        <Watchlist symbols={configuration?.symbols || []} selectedSymbol={selectedSymbol} onSelect={setSelectedSymbol} onAdd={addToWatchlist} monitoringEnabled={configuration?.monitoring_enabled} pipelineRunning={snapshot.status?.pipeline_running} />
+        <section className="panel flex min-h-0 flex-col p-5">
+          <div className="flex items-start justify-between">
+            <div><p className="metric-label">Market overview</p><div className="mt-1 flex items-baseline gap-3"><h2 className="text-2xl font-semibold tracking-tight">{selectedSymbol || "Select a symbol"}</h2>{marketSummary && <><span className="text-lg font-semibold">${marketSummary.close.toFixed(2)}</span><span className={`text-xs font-semibold ${marketSummary.change >= 0 ? "text-emerald-600" : "text-red-500"}`}>{marketSummary.change >= 0 ? "+" : ""}${marketSummary.change.toFixed(2)} ({marketSummary.changePercent.toFixed(2)}%)</span></>}</div></div>
+            <div className="rounded-lg bg-slate-50 px-2.5 py-1.5 text-xs font-medium text-slate-500 dark:bg-slate-800 dark:text-slate-300">{chartInterval}</div>
+          </div>
+          <div className="mt-3 flex items-center justify-between gap-3"><div className="flex gap-3 overflow-hidden">{marketSummary ? <><OhlcValue label="O" value={marketSummary.open} /><OhlcValue label="H" value={marketSummary.high} /><OhlcValue label="L" value={marketSummary.low} /><OhlcValue label="C" value={marketSummary.close} /></> : <span className="text-xs text-slate-400">OHLC values appear when data is available.</span>}</div><div className="flex shrink-0 rounded-lg bg-slate-50 p-1 dark:bg-slate-800">{["1D", "1W", "1M", "1Y", "MAX"].map((range) => <button key={range} onClick={() => setChartRange(range)} className={`rounded-md px-2 py-1 text-[10px] font-semibold transition ${chartRange === range ? "bg-white text-blue-600 shadow-sm dark:bg-slate-700 dark:text-blue-300" : "text-slate-400 hover:text-slate-700 dark:hover:text-slate-200"}`}>{range}</button>)}</div></div>
+          <div className="relative mt-2 min-h-0 flex-1"><PriceChart candles={candles} />{chartLoading && <div className="pointer-events-none absolute inset-0 grid place-items-center bg-white/35 text-xs font-medium text-slate-500 backdrop-blur-[1px] dark:bg-slate-950/25 dark:text-slate-300">Loading chart…</div>}</div>
+          <div className="mt-2 flex items-center justify-between border-t border-slate-100 pt-3 text-xs text-slate-400 dark:border-slate-800"><span className="flex items-center gap-1.5"><i className={`h-1.5 w-1.5 rounded-full ${chartLive ? "bg-emerald-500 shadow-[0_0_8px_rgba(34,197,94,.8)]" : "bg-slate-300 dark:bg-slate-700"}`} />{chartLive ? "Live updates" : "Connecting live feed"}</span><span>{candles.length ? `${candles.length} candles` : "No saved candles"}</span></div>
+        </section>
         <aside className="panel min-h-0 p-5"><div className="flex items-center justify-between"><div><p className="metric-label">Strategy</p><h2 className="mt-1 text-sm font-semibold">EMA crossover</h2></div><span className={`rounded-full px-2.5 py-1 text-[11px] font-semibold ${configuration?.place_orders_automatically ? "bg-emerald-50 text-emerald-700 dark:bg-emerald-950 dark:text-emerald-300" : "bg-slate-100 text-slate-500 dark:bg-slate-800 dark:text-slate-300"}`}>{configuration?.place_orders_automatically ? "Auto on" : "Signals only"}</span></div><div className="mt-4 space-y-2 overflow-y-auto">{snapshot.signals.slice(0, 4).map((signal) => <div key={`${signal.symbol}-${signal.timestamp}`} className="rounded-xl border border-slate-100 p-3 dark:border-slate-800"><div className="flex items-center justify-between"><span className="text-sm font-semibold">{signal.symbol}</span><span className="text-xs font-semibold text-blue-600 dark:text-blue-400">{signal.direction}</span></div><p className="mt-1 truncate text-xs text-slate-400">{signal.reason}</p></div>)}{!snapshot.signals.length && <div className="rounded-xl bg-slate-50 p-4 text-sm leading-5 text-slate-400 dark:bg-slate-800/60">No decisions yet. Signals appear here after completed candles are evaluated.</div>}</div></aside>
       </section>
       <section className="mt-4 grid shrink-0 grid-cols-1 gap-4 lg:grid-cols-2"><div className="panel p-4"><div className="flex items-center justify-between"><h2 className="text-sm font-semibold">Positions</h2><span className="text-xs text-slate-400">Broker snapshot</span></div><DataRows rows={snapshot.positions.slice(0, 2)} empty="No open positions" render={(position) => <><span className="font-semibold">{position.symbol}</span><span>{quantity.format(position.quantity)} shares</span><span className={Number(position.unrealized_pnl) >= 0 ? "text-emerald-600" : "text-red-500"}>{money.format(position.unrealized_pnl)}</span></>} /></div><div className="panel p-4"><div className="flex items-center justify-between"><h2 className="text-sm font-semibold">Activity</h2><span className="text-xs text-slate-400">Recent orders</span></div><DataRows rows={snapshot.orders.slice(0, 2)} empty="No orders recorded" render={(order) => <><span className="font-semibold">{order.symbol}</span><span>{String(order.side).toUpperCase()} · {quantity.format(order.quantity)}</span><span className="capitalize text-slate-500">{order.status.replaceAll("_", " ")}</span></>} /></div></section>

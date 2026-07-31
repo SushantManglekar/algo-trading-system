@@ -82,6 +82,11 @@ async def historical_candles(
         end_at=end_at,
         adjusted=adjusted,
     )
+    provider_candles = await container.candle_history.get_provider_candles(
+        request, container.provider
+    )
+    if provider_candles:
+        return list(provider_candles)
     ticks = await container.tick_store.list_ticks(symbol, start_at=start_at, end_at=end_at)
-    history = await container.candle_history.get_candles(request, container.provider, ticks)
+    history = await container.candle_history.aggregate_fallback_ticks(request, ticks)
     return list(history.candles)
