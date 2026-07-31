@@ -6,6 +6,9 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from analytics.engine import AnalyticsEngine
 from analytics.types import AnalyticsSettings, ClosedSignalOutcome
+from config.settings import AppSettings
+from control_plane.repository import SqlAlchemyTradingControlStore
+from control_plane.service import TradingControlService
 from market_data.types import Candle, CandleInterval, MarketTick
 from models import CandleRecord, SignalOutcomeRecord, SignalRecord, TickRecord
 from providers.execution import (
@@ -168,8 +171,27 @@ async def test_execution_audit_reserves_idempotency_and_records_portfolio(
     )
 
 
+@pytest.mark.asyncio
+async def test_control_configuration_and_audit_are_durable(
+    sessions: async_sessionmaker[AsyncSession],
+) -> None:
+    settings = AppSettings(_env_file=None, symbols="AAPL")
+    store = SqlAlchemyTradingControlStore(sessions)
+    default = TradingControlService.from_settings(settings)
+
+    created = await store.get_or_create(default)
+    assert created.symbols == ("AAPL",)
+    assert [entry.version for entry in await store.list_audit()] == [1]
+
+
 def test_all_durable_models_are_registered() -> None:
-    assert {"ticks", "candles", "signals", "signal_outcomes", "execution_orders"} <= set(
-        Base.metadata.tables
-    )
+    assert {
+        "ticks",
+        "candles",
+        "signals",
+        "signal_outcomes",
+        "execution_orders",
+        "trading_control",
+        "trading_control_audit",
+    } <= set(Base.metadata.tables)
     assert all((TickRecord, CandleRecord, SignalRecord, SignalOutcomeRecord))

@@ -86,6 +86,7 @@ class SqlAlchemyTradingControlStore:
             if record is None:
                 record = self._record_from_configuration(default)
                 session.add(record)
+                await session.flush()
                 session.add(self._audit_record(default))
                 await session.commit()
             return self._to_configuration(record)

@@ -37,7 +37,7 @@ dev = [
 packages = [
   "api", "core", "config", "market_data", "providers", "strategies", "risk",
   "signals", "analytics", "execution", "storage", "repositories", "services", "models",
-  "schemas", "workers", "events",
+  "schemas", "workers", "events", "control_plane",
 ]
 
 [tool.pytest.ini_options]
