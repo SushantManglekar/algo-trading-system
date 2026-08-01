@@ -5,6 +5,7 @@ import pytest
 
 from market_data.candle_history import HistoricalCandleService, HistoricalCandleSource
 from market_data.exchange_calendar import XnysExchangeCalendar
+from market_data.tick_chart import downsample_ticks
 from market_data.types import Candle, CandleInterval, HistoricalCandleRequest, MarketTick
 from providers.mock import MockMarketDataProvider
 
@@ -115,3 +116,15 @@ async def test_history_service_aggregates_ticks_only_when_provider_has_no_histor
     assert len(result.candles) == 1
     assert result.candles[0].is_complete is True
     assert result.candles[0].volume == Decimal(200)
+
+
+def test_tick_chart_downsampling_keeps_order_and_range_endpoints() -> None:
+    start = datetime(2026, 7, 24, 13, 30, tzinfo=UTC)
+    ticks = tuple(tick(start + timedelta(seconds=index)) for index in range(100))
+
+    sampled = downsample_ticks(ticks, max_points=12)
+
+    assert len(sampled) == 12
+    assert sampled[0] == ticks[0]
+    assert sampled[-1] == ticks[-1]
+    assert list(sampled) == sorted(sampled, key=lambda item: item.timestamp)

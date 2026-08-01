@@ -56,6 +56,16 @@ def test_rest_api_runs_end_to_end_with_in_memory_dependencies() -> None:
         assert ingestion.status_code == 202
         assert ingestion.json()["accepted"] is True
         assert client.get("/market/ticks/latest/AAPL").json()["symbol"] == "AAPL"
+        chart_ticks = client.get(
+            "/market/ticks/AAPL",
+            params={
+                "start_at": timestamp.isoformat(),
+                "end_at": (timestamp + timedelta(minutes=1)).isoformat(),
+                "max_points": 100,
+            },
+        )
+        assert chart_ticks.status_code == 200
+        assert chart_ticks.json()[0]["price"] == "200.00"
         latest_candle = client.get("/market/candles/latest/AAPL", params={"interval": "1m"})
         assert latest_candle.status_code == 200
         assert latest_candle.json()["is_complete"] is False

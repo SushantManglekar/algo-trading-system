@@ -7,6 +7,7 @@ from datetime import datetime
 from fastapi import APIRouter, Depends, HTTPException, status
 
 from api.dependencies import get_container
+from market_data.tick_chart import downsample_ticks
 from market_data.types import Candle, CandleInterval, HistoricalCandleRequest, MarketTick
 from schemas.api import TickIngestResponse
 from services.container import ApplicationContainer
@@ -50,6 +51,24 @@ async def latest_tick(
     if tick is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="tick not found")
     return tick
+
+
+@router.get("/ticks/{symbol}", response_model=list[MarketTick])
+async def chart_ticks(
+    symbol: str,
+    start_at: datetime,
+    end_at: datetime,
+    max_points: int = 720,
+    container: ApplicationContainer = Depends(get_container),
+) -> list[MarketTick]:
+    """Return a bounded raw-tick series suitable for a live intraday line chart."""
+    if not 3 <= max_points <= 2_000:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="max_points must be between 3 and 2000",
+        )
+    ticks = await container.tick_store.list_ticks(symbol, start_at=start_at, end_at=end_at)
+    return list(downsample_ticks(ticks, max_points))
 
 
 @router.get("/candles/latest/{symbol}", response_model=Candle)
